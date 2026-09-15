@@ -236,5 +236,7 @@ public func describePopup(_ popup: Popup) -> PopupDescriptor {
         return PopupDescriptor(title: "Delete Worktree", primaryTitle: "Delete", owningTask: 8)
     case .deleteWorktreeFailed(_, _, let message):
         return PopupDescriptor(title: "Delete Worktree Failed", message: message, primaryTitle: "Close", showsCancel: false, owningTask: 8)
+    case .merge:
+        return PopupDescriptor(title: "Merge", primaryTitle: "Merge", owningTask: 5)
     }
 }

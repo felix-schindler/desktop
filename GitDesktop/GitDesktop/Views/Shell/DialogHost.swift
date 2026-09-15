@@ -5,9 +5,12 @@ import SwiftUI
 // Sheet stack for the pruned `Popup` set (Docs/04-shell-toolbar.md §7).
 // Presents `AppStore.currentPopup` (top of the ≤50 stack) via
 // `.sheet(item:)`: Esc dismisses (native), focus lands on the primary field
-// or button, and stacked sheets restore in order. Task 2 owns the shell
-// dialogs (Remove/Change-alias/About/Error); every other kept popup renders
-// a generic dialog that names its owning task.
+// or button, and stacked sheets restore in order.
+//
+// Task 13 composition: every popup owned by Tasks 5–8 renders its bespoke
+// dialog (branch/merge/tag/worktree/unreachable + multi-commit + sync +
+// stash/undo/reset/LFS). Only Task-3 commit-flow confirms still use
+// `GenericPopupDialog` until the Changes composition lands.
 
 struct DialogHost: View {
     @ObservedObject var store: AppStore
@@ -82,6 +85,109 @@ struct PopupSheet: View {
             case .thankYou:
                 // Deleted surface per scope; never presented in practice.
                 EmptyView()
+            // MARK: Branches + merge (Task 5, composed in Task 13)
+            case .createBranch(let repositoryID, let initialName, let targetCommitSHA):
+                CreateBranchDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID,
+                    initialName: initialName, targetCommitSHA: targetCommitSHA)
+            case .renameBranch(let repositoryID, let branchRef):
+                RenameBranchDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID, branchRef: branchRef)
+            case .deleteBranch(let repositoryID, let branchRef, let existsOnRemote):
+                DeleteBranchDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID,
+                    branchRef: branchRef, existsOnRemote: existsOnRemote)
+            case .deleteRemoteBranch(let repositoryID, let branchRef):
+                DeleteRemoteBranchDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID, branchRef: branchRef)
+            case .merge(let repositoryID):
+                MergeDialogAdapter(store: store, popup: popup, repositoryID: repositoryID)
+            case .unreachableCommits(let repositoryID):
+                UnreachableCommitsDialogAdapter(store: store, popup: popup, repositoryID: repositoryID)
+            case .commitConflictsWarning(_, let fileIDs):
+                CommitConflictsWarningDialogAdapter(store: store, popup: popup, fileIDs: fileIDs)
+            // MARK: Multi-commit (Task 6, composed in Task 13)
+            case .multiCommitOperation(let repositoryID):
+                MultiCommitOperationDialogAdapter(store: store, popup: popup, repositoryID: repositoryID)
+            case .warnForcePush(let operation):
+                WarnForcePushDialogAdapter(store: store, popup: popup, operation: operation)
+            case .commitMessage(_, let dialogTitle, let dialogButtonText):
+                CommitMessageDialogAdapter(
+                    store: store, popup: popup,
+                    dialogTitle: dialogTitle, dialogButtonText: dialogButtonText)
+            // MARK: Sync (Task 7, composed in Task 13)
+            case .pushNeedsPull(let repositoryID):
+                PushNeedsPullDialogAdapter(store: store, popup: popup, repositoryID: repositoryID)
+            case .confirmForcePush(let repositoryID, let upstreamBranch):
+                ConfirmForcePushDialogAdapter(
+                    store: store, popup: popup,
+                    repositoryID: repositoryID, upstreamBranch: upstreamBranch)
+            case .localChangesOverwritten(_, let files):
+                LocalChangesOverwrittenDialogAdapter(store: store, popup: popup, files: files)
+            case .upstreamAlreadyExists(_, let existingRemoteName):
+                UpstreamAlreadyExistsDialogAdapter(
+                    store: store, popup: popup, existingRemoteName: existingRemoteName)
+            case .pushBranchCommits(let repositoryID, let branchRef, let unpushedCommits):
+                PushBranchCommitsDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID,
+                    branchRef: branchRef, unpushedCommits: unpushedCommits)
+            case .genericGitAuthentication(let remoteURL, let username):
+                GenericGitAuthDialogAdapter(
+                    store: store, popup: popup, remoteURL: remoteURL, username: username)
+            case .untrustedCertificate(let host, let certificateData):
+                UntrustedCertificateDialogAdapter(
+                    store: store, popup: popup, host: host, certificateData: certificateData)
+            case .addSSHHost(let host, let fingerprint):
+                AddSSHHostDialogAdapter(
+                    store: store, popup: popup, host: host, fingerprint: fingerprint)
+            case .sshKeyPassphrase(let keyPath):
+                SSHKeyPassphraseDialogAdapter(store: store, popup: popup, keyPath: keyPath)
+            case .sshUserPassword(let username):
+                SSHUserPasswordDialogAdapter(store: store, popup: popup, username: username)
+            // MARK: Stash / tags / worktrees / undo / LFS (Task 8, composed in Task 13)
+            case .stashAndSwitchBranch(let repositoryID, let branchRef):
+                StashAndSwitchDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID, branchRef: branchRef)
+            case .confirmOverwriteStash:
+                ConfirmOverwriteStashDialogAdapter(store: store, popup: popup)
+            case .confirmDiscardStash(let repositoryID, let stashName):
+                ConfirmDiscardStashDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID, stashName: stashName)
+            case .createTag(let repositoryID, let targetCommitSHA, let initialName):
+                CreateTagDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID,
+                    targetCommitSHA: targetCommitSHA, initialName: initialName)
+            case .deleteTag(let repositoryID, let tagName):
+                DeleteTagDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID, tagName: tagName)
+            case .confirmCheckoutCommit(let repositoryID, let commitSHA):
+                ConfirmCheckoutCommitDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID, commitSHA: commitSHA)
+            case .warningBeforeReset(let repositoryID, let commitSHA):
+                WarningBeforeResetDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID, commitSHA: commitSHA)
+            case .warnLocalChangesBeforeUndo(let repositoryID, let commitSHA, let isClean):
+                WarnLocalChangesBeforeUndoDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID,
+                    commitSHA: commitSHA, isWorkingDirectoryClean: isClean)
+            case .addWorktree(let repositoryID, let initialBranchName, _):
+                AddWorktreeDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID,
+                    initialBranchName: initialBranchName)
+            case .renameWorktree(let repositoryID, let worktreePath):
+                RenameWorktreeDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID, worktreePath: worktreePath)
+            case .deleteWorktree(let repositoryID, let worktreePath):
+                DeleteWorktreeDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID, worktreePath: worktreePath)
+            case .deleteWorktreeFailed(_, let worktreePath, let message):
+                DeleteWorktreeFailedDialog(
+                    worktreePath: worktreePath, message: message,
+                    onDismiss: { store.closePopup(popup) })
+            case .initializeLFS(let repositoryIDs):
+                InitializeLFSDialogAdapter(store: store, popup: popup, repositoryIDs: repositoryIDs)
+            case .lfsAttributeMismatch:
+                LFSAttributeMismatchDialogAdapter(store: store, popup: popup)
             default:
                 GenericPopupDialog(store: store, popup: popup)
             }
@@ -262,24 +368,6 @@ struct AboutDialog: View {
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0 (dev)"
-    }
-}
-
-struct AcknowledgementsDialog: View {
-    @ObservedObject var store: AppStore
-    var popup: Popup
-
-    var body: some View {
-        ShellDialog(
-            title: "Acknowledgements",
-            primaryTitle: "Close",
-            primaryAction: { store.closePopup(popup) },
-            showsCancel: false,
-            onCancel: { store.closePopup(popup) }
-        ) {
-            // TODO(Task 9/10): full acknowledgements + release-notes content.
-            Text("GitDesktop stands on the shoulders of open source. The full list of acknowledgements ships with Settings and Help.")
-        }
     }
 }
 

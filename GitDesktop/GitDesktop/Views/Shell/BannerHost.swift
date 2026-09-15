@@ -116,17 +116,22 @@ struct BannerRow: View {
         case .none:
             break
         case .undo:
-            // TODO(Tasks 5–6): perform the real undo (undoSha/branchName),
-            // then show the *Undone banner.
-            store.clearBanner()
+            // Real undo: cherry-pick/squash/reorder acknowledge with their
+            // `*Undone` banner (+ refresh); rebase/merge success just clears
+            // (no Undone variant in the model).
+            Task { await shellUndoBanner(store: store, banner: banner) }
         case .reopenConflictDialog:
-            if case .mergeConflictsFound(_, let popup) = banner {
+            // Reopen the stored conflict dialog. Conflict banners persist
+            // until the flow resolves, so the banner stays up.
+            switch banner {
+            case .mergeConflictsFound(_, let popup):
                 store.showPopup(popup)
-            }
-            // TODO(Tasks 5–6): reopen the rebase/cherry-pick conflict flow.
-            // The banner stays up until conflicts resolve.
-            if case .mergeConflictsFound = banner {
-                store.clearBanner()
+            case .rebaseConflictsFound, .cherryPickConflictsFound, .conflictsFound:
+                if let id = store.selectedRepository?.id {
+                    store.showPopup(.multiCommitOperation(repositoryID: id))
+                }
+            default:
+                break
             }
         }
     }

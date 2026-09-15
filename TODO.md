@@ -525,4 +525,67 @@ Running notes for later PLAN.md tasks. Append, don't rewrite history.
   has hunks+contents). Harness (Foundation-only, no AppStore/Auth):
   Models + GitProcess/GitError/Parsers + Defaults + RepositoryState +
   RepositoryDetailLoading + DiffSupport + tests. `xcodebuild` green.
+
+## Task 13 → Tasks 14, 16 (foldouts/dialogs composition — shell now live)
+
+- **New seam:** `Views/Shell/ShellPipelineActions.swift` (`@MainActor` helpers).
+  Task 14 menu actions + Task 16 fixture pass should reuse these (no duplicate
+  git paths): `shellCheckoutBranch/Create/Rename/DeleteBranch`, `shellFetch/
+  Pull/Push`, `shellCreate/DeleteTag`, `shellAdd/Rename/RemoveWorktree`,
+  `shellSwitchWorktree`, `shellMerge`, `shellUndoBanner`. Branch CRUD runs
+  static `BranchOperations`/`GitProcess` on MainActor + `refreshRepository`
+  (bypasses `performPipelineMutation` because those statics are
+  MainActor-isolated under `-default-isolation=MainActor` and can't run inside
+  the actor's `@Sendable` closure in Swift 6; UI disables during ops).
+  Tag/worktree use `GitService` methods via the actor so mocks keep working.
+  Sync uses `SyncOperations` + `performSyncOperation` (`popupForSyncFailure`)
+  so push-needs-pull/auth surface the right sheet.
+- **Foldouts (`Views/Shell/FoldoutViews.swift`):** branch → real
+  `BranchesContainerView` (select=checkout w/ spinner, New/Rename/Delete/
+  checkout-in-new-worktree/merge-into-current via popups, commit-drop=
+  cherry-pick + banner); worktree → real `WorktreeList` (async load via
+  `gitService.worktrees()`, switch=select-or-add repo at path, New/Rename/
+  Delete via popups, Reveal via `NSWorkspace`); push/pull split → real fetch
+  + force-push confirm (primary runs in `ToolbarView`).
+- **Toolbar (`ToolbarView.swift` + `PushPullState.swift`):** `syncTitle`
+  (`Fetching…/Pulling…/Pushing…`) drives `.progress` state + spinner badge;
+  `lastFetchedByRepo[hash]` feeds `Last fetched …`. Primary: publish-repo →
+  Repository Settings, publish-branch → push `--set-upstream`, fetch/pull/push
+  via helpers, force-push gated on `Defaults.confirmForcePush` →
+  `.confirmForcePush` sheet. `derivePushPullState` gained `lastFetched: Date?`
+  (defaulted, existing callers unaffected).
+- **Dialogs (`DialogHost.swift` + `Dialog*Adapters.swift`):** all Tasks 5–8
+  popups now bespoke (no `GenericPopupDialog` for owned cases; Task-3
+  commit-flow confirms still generic). New additive `Popup.merge(repositoryID:)`
+  hosts `MergeWizardView` (footer `Merge into …` entry; conflicts banner popup
+  fixed from placeholder `0` to real ID in the adapter, feature view untouched).
+  `.multiCommitOperation` → minimal live rebase chooser (`LiveMultiCommitService`
+  + `rebaseResultBanner` + refresh); `.warnForcePush` → `WarnForcePushView`
+  (persists `Defaults.confirmForcePush`). Tag/worktree/branch adapters resolve
+  repo+state by ID, show `ErrorDialog` when missing. Deleted dead
+  `AcknowledgementsDialog` stub (`.acknowledgements` already routes to
+  `AcknowledgementsFullDialog`).
+- **Banners (`BannerHost.swift`):** `performAction` undo → `shellUndoBanner`
+  (cherry-pick/squash/reorder acknowledge with `*Undone` + refresh; rebase/
+  merge success just clears — no Undone variant in model, true reset-hard undo
+  needs Task 14's undo-SHA plumbing); reopen → merge shows stored popup,
+  rebase/cherry-pick/conflicts show `.multiCommitOperation` for the selected
+  repo; conflict banners persist (no auto-clear on reopen).
+- **For Task 14 (menu):** reuse `ShellPipelineActions` so menu+toolbar share
+  one path. Menu posts `.push/.pull/.fetch` today with no subscriber — subscribe
+  `ToolbarView`-equivalent `runSync` via these helpers. `createTag`/`mergeInto
+  Current`/`rebaseCurrent` can `showPopup(.createTag/.merge/.multiCommitOperation)`.
+  Coordinate: Task 13 owns dialog cases, Task 14 owns subscriber map (don't add
+  duplicate observers for push/pull/fetch in views).
+- **For Task 16 (fixture pass):** shell paths verified by build only (fixture
+  `git` sanity: init→branch→tag→worktree→merge→rename→delete all pass via CLI).
+  Exercise on a real fixture: branch switch/create/rename/delete via dropdown,
+  fetch/pull/push via toolbar (needs a `file://` remote for offline), merge via
+  `Merge into …`, worktree switch/add/rename/delete via worktree dropdown,
+  tag create/delete via history (once Task 12 wires entry points), banner Undo/
+  Resolve-conflicts actions. Known gaps: banner undo is acknowledge-only (no
+  `reset --hard` without undo SHA); `UnreachableCommits` feeds `recentCommits`
+  with first-reachable heuristic; `DeleteTag` assumes unpushed (no pushed guard
+  without remote ls); checkout with dirty WD surfaces `.error`/`.localChanges
+  Overwritten` via `routeRefreshFailure` (no auto-stash).
 - No GH / editor / Copilot / theme / notification code anywhere (scope bans).
