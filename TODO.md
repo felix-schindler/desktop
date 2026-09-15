@@ -638,4 +638,49 @@ Running notes for later PLAN.md tasks. Append, don't rewrite history.
   additive sync recording (`fetchedRemotes`/`pulledRemotes`/`pushedBranches`,
   `syncFailure` throw-injection) for action tests — plain `var` (not
   `private(set)`, which is file-scoped and would not compile in `Sync.swift`).
+
+## Task 15 — productionize services (`task/15-productionize-services`)
+
+- **Apple Intelligence is real now:** `streamFoundationModel` streams deltas
+  from `LanguageModelSession.streamResponse(to:)` (snapshots carry full text;
+  only the new suffix is yielded) and `runFoundationModel` uses
+  `respond(to:)`. `liveModelStatus()` reads
+  `SystemLanguageModel.default.availability` through the pure
+  `AISystemStatus` → `aiAvailability(systemStatus:)` seam (tested, no
+  FoundationModels import needed). API verified against the macOS 27 SDK
+  (`swiftc -typecheck` probe); app build links it. Errors map to
+  `AIError.generationFailed` (Apple's `LocalizedError` text, e.g. guardrail
+  refusals); `CancellationError` → `.cancelled`. Explain-only contract kept.
+- **Update feed wired:** `UpdateService()` defaults to the `SUFeedURL`
+  Info.plist key via pure `feedURLFromInfoDictionary(_:)` (http(s) only;
+  dev builds have no key → checks stay local). `fetchRemoteVersion`
+  validates via pure `appcastXML(data:response:)` (`UpdateError`
+  `.feedUnavailable`/`.unreadableFeed`). Release step: set `SUFeedURL` to
+  the real appcast when distribution infra lands. Sparkle SPM still needs a
+  pbxproj edit (banned) — forward `SPUUpdater` states into
+  `UpdateService.state` then; banner/showcase/quit-guard stay as-is.
+- **Clone cancel kills the process:** `GitProcess.runCancellable` (additive;
+  `run` unchanged) terminates the `Process` on Task cancel via a
+  lock-guarded `CancellableProcessBox` and throws `CancellationError`
+  (cancel wins ties). `RepositoryManagement.clone` routes through it.
+  `Services/CloneDispatcher` (new, `shared` singleton) tracks in-flight
+  clones (`active` + progress mirror), delivers completion exactly once,
+  and removes the partial destination only when it created it.
+  `CloneRepositoryDialog` starts/cancels through the dispatcher (Cancel no
+  longer just drops the local task); `CloningRepositoryView` Cancel calls
+  `cancel(destinationPath:)` + clears the banner. No view inits changed.
+- **Out of scope / follow-ups:** nothing ever selects `.cloning`, so
+  `CloningRepositoryView` is still unreachable — wiring select-on-clone
+  (AppStore seam) is a Task 16/fixture-pass item. `active[id].progress`
+  mirroring exists for a future determinate progress binding there.
+- **Tests:** `Tests/Task15Tests.swift` (7 groups incl. a deterministic
+  cancel-kills-clone test using `GIT_SSH_COMMAND` → sleep script, so git
+  hangs without network; asserts `CancellationError` + prompt return +
+  partial-dir removal). Harness gotcha re-verified: entry file must be
+  named `main.swift`, needs `-module-name GitDesktop`, and pure helpers
+  must stay free functions (a `static` on a `@MainActor` class breaks the
+  non-isolated harness) — `feedURLFromInfoDictionary` was moved out of the
+  class for this reason. Harness file set = Task10 list + `Parsers/*` +
+  `App/*` + `SettingsView` (for `SettingsDraft`) + `RepositoryDialogs`
+  (for `LabeledField`) + `CloneDispatcher` + `Task15Tests`.
 - No GH / editor / Copilot / theme / notification code anywhere (scope bans).

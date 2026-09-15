@@ -1,5 +1,8 @@
 import Combine
 import Foundation
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 // MARK: - AppleIntelligenceService (Task 10)
 // Swift replacement for the reference Copilot integration per
@@ -158,6 +161,36 @@ public func aiShouldShowDisclaimer(acknowledged: Bool, dontAskAgain: Bool) -> Bo
     !acknowledged && !dontAskAgain
 }
 
+// MARK: - System status mapping (pure, unit-tested)
+
+/// FoundationModels-free mirror of
+/// `SystemLanguageModel.Availability.UnavailableReason`. Keeps the
+/// reason → `AIAvailability` mapping unit-testable without linking
+/// FoundationModels (the live status feeds through this mapper).
+public enum AISystemStatus: Sendable, Equatable {
+    case available
+    case deviceNotEligible
+    case appleIntelligenceNotEnabled
+    case modelNotReady
+    case unknown(String)
+}
+
+/// Map a system model status to the app-facing availability gate. Pure.
+public func aiAvailability(systemStatus: AISystemStatus) -> AIAvailability {
+    switch systemStatus {
+    case .available:
+        return .available
+    case .deviceNotEligible:
+        return .noOnDeviceModel
+    case .appleIntelligenceNotEnabled:
+        return .modelUnavailable(reason: "Apple Intelligence is turned off in System Settings")
+    case .modelNotReady:
+        return .modelUnavailable(reason: "the on-device model is still downloading or preparing")
+    case .unknown(let detail):
+        return .modelUnavailable(reason: detail)
+    }
+}
+
 // MARK: - Live service (FoundationModels when available)
 
 /// Thin wrapper over `FoundationModels.LanguageModelSession`.
@@ -257,11 +290,27 @@ public final class AppleIntelligenceService: ObservableObject {
     #if canImport(FoundationModels)
     @available(macOS 26, *)
     private static func liveModelStatus() -> AIAvailability {
-        // `SystemLanguageModel.default.isAvailable` is the documented gate.
-        // Referenced by string to keep this file compiling on SDKs without
-        // the symbol; the `#available` + `canImport` guards hide the button
-        // on older systems per spec.
-        return .available
+        // Real gate: `SystemLanguageModel.default.availability` reports
+        // whether the on-device model can serve requests right now.
+        // Mapped through the pure `aiAvailability(systemStatus:)` seam so
+        // the reason strings stay unit-tested (see `Task15Tests`).
+        let status: AISystemStatus
+        switch SystemLanguageModel.default.availability {
+        case .available:
+            status = .available
+        case .unavailable(let reason):
+            switch reason {
+            case .deviceNotEligible:
+                status = .deviceNotEligible
+            case .appleIntelligenceNotEnabled:
+                status = .appleIntelligenceNotEnabled
+            case .modelNotReady:
+                status = .modelNotReady
+            @unknown default:
+                status = .unknown("an unexpected model state (\(reason))")
+            }
+        }
+        return aiAvailability(systemStatus: status)
     }
 
     @available(macOS 26, *)
@@ -269,23 +318,58 @@ public final class AppleIntelligenceService: ObservableObject {
         prompt: String,
         continuation: AsyncThrowingStream<String, Error>.Continuation
     ) async throws {
-        // Real streaming via LanguageModelSession lands here when the
-        // FoundationModels SDK is linked. Until then yield a deterministic
-        // placeholder so the UI flow (generate/cancel/regenerate) is testable
-        // without a device model — production builds link the SDK and replace
-        // this body with `for try await token in session.streamResponse(to:)`.
-        if cancelled { throw AIError.cancelled }
-        continuation.yield("")
+        // Real on-device streaming via `LanguageModelSession.streamResponse`.
+        // Snapshots carry the full text so far — yield only the new suffix
+        // so consumers can append tokens incrementally. Explain-only
+        // contract holds: this never writes files, it only yields text.
+        // Throws (never finishes-then-throws) so the caller in
+        // `generateCommitMessage` settles the continuation exactly once.
+        if cancelled || Task.isCancelled { throw AIError.cancelled }
+        let session = LanguageModelSession()
+        var emitted = ""
+        do {
+            let stream = session.streamResponse(to: prompt)
+            for try await snapshot in stream {
+                if cancelled || Task.isCancelled { throw AIError.cancelled }
+                let partial: String = snapshot.content
+                guard partial.hasPrefix(emitted) else {
+                    // Defensive resync (String streams are append-only in
+                    // practice): never emit duplicates, never crash.
+                    emitted = partial
+                    continue
+                }
+                let delta = String(partial.dropFirst(emitted.count))
+                emitted = partial
+                if !delta.isEmpty { continuation.yield(delta) }
+            }
+        } catch is CancellationError {
+            throw AIError.cancelled
+        } catch let error as AIError {
+            throw error
+        } catch {
+            throw AIError.generationFailed(error.localizedDescription)
+        }
+        if cancelled || Task.isCancelled { throw AIError.cancelled }
         continuation.finish()
     }
 
     @available(macOS 26, *)
     private func runFoundationModel(prompt: String) async throws -> String {
-        _ = prompt
-        if cancelled { throw AIError.cancelled }
-        return "This file contains merge conflict markers (<<<<<<< / ======= / >>>>>>>). "
-            + "The top hunk is your branch (OURS), the bottom is the incoming branch (THEIRS). "
-            + "Open the file, keep the side you want (or combine both), then mark as resolved."
+        // Real on-device single response for conflict explanations.
+        // Read-only: returns explanation text, never touches the workdir.
+        if cancelled || Task.isCancelled { throw AIError.cancelled }
+        let session = LanguageModelSession()
+        do {
+            let response = try await session.respond(to: prompt)
+            if cancelled || Task.isCancelled { throw AIError.cancelled }
+            return response.content
+        } catch is CancellationError {
+            throw AIError.cancelled
+        } catch let error as AIError {
+            throw error
+        } catch {
+            throw AIError.generationFailed(error.localizedDescription)
+        }
     }
     #else
     private static func liveModelStatus() -> AIAvailability { .noOnDeviceModel }

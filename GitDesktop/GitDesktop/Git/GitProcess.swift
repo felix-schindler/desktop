@@ -32,6 +32,42 @@ public enum GitProcessError: Error, Sendable {
     case terminatedBySignal(Int32)
 }
 
+/// Shared handle letting a Task-cancellation handler terminate an in-flight
+/// `Process` from any thread (Task 15: clone cancel). Lock-guarded and
+/// `Sendable`; all members are `nonisolated` so both the spawning queue and
+/// the cancellation handler can use it under the target's default
+/// MainActor isolation.
+private final class CancellableProcessBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private nonisolated(unsafe) var process: Process?
+    private nonisolated(unsafe) var cancelled = false
+
+    /// Publish a spawned process. Terminates it immediately when Cancel
+    /// already arrived, closing the spawn/registration race.
+    nonisolated func register(_ value: Process) {
+        lock.lock()
+        process = value
+        let shouldTerminate = cancelled
+        lock.unlock()
+        if shouldTerminate { value.terminate() }
+    }
+
+    /// Mark cancelled and terminate the registered process, if any.
+    nonisolated func cancel() {
+        lock.lock()
+        cancelled = true
+        let value = process
+        lock.unlock()
+        value?.terminate()
+    }
+
+    nonisolated var wasCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+}
+
 /// `Process`-based git execution with Desktop-compatible environment.
 public enum GitProcess {
     /// Terminal output cap for error messages (256 KB; log last 1024 chars).
@@ -110,11 +146,60 @@ public enum GitProcess {
         }
     }
 
+    /// Run git, terminating the underlying `Process` when the surrounding
+    /// `Task` is cancelled (Task 15: clone cancel). Cancellation surfaces as
+    /// `CancellationError` so callers' `Task.isCancelled` / `catch is
+    /// CancellationError` paths trigger; a process that already exited
+    /// normally before Cancel still returns its result unless the flag was
+    /// set first (cancel wins ties — documented, predictable).
+    public static func runCancellable(
+        _ args: [String],
+        workingDirectory: String? = nil,
+        stdin: Data? = nil,
+        environment: [String: String] = [:]
+    ) async throws -> GitResult {
+        // Fail fast when already cancelled (e.g. Cancel tapped before git
+        // spawned) so callers never leak a process.
+        try Task.checkCancellation()
+        let box = CancellableProcessBox()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        let result = try runBlocking(
+                            args,
+                            workingDirectory: workingDirectory,
+                            stdin: stdin,
+                            environment: environment,
+                            cancellation: box)
+                        continuation.resume(returning: result)
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        } onCancel: {
+            box.cancel()
+        }
+    }
+
     private static func runBlocking(
         _ args: [String],
         workingDirectory: String?,
         stdin: Data?,
         environment: [String: String]
+    ) throws -> GitResult {
+        try runBlocking(
+            args, workingDirectory: workingDirectory, stdin: stdin,
+            environment: environment, cancellation: nil)
+    }
+
+    private static func runBlocking(
+        _ args: [String],
+        workingDirectory: String?,
+        stdin: Data?,
+        environment: [String: String],
+        cancellation: CancellableProcessBox?
     ) throws -> GitResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: locateGit())
@@ -143,6 +228,10 @@ public enum GitProcess {
         } catch {
             throw GitProcessError.launchFailed(error.localizedDescription)
         }
+        // Publish the process BEFORE waiting so a concurrent Cancel can
+        // terminate it (`register` terminates immediately if Cancel already
+        // arrived — no kill-window between spawn and registration).
+        cancellation?.register(process)
 
         if let stdin, let pipe = stdinPipe {
             pipe.fileHandleForWriting.write(stdin)
@@ -150,6 +239,12 @@ public enum GitProcess {
         }
 
         process.waitUntilExit()
+
+        if cancellation?.wasCancelled == true {
+            // We (or a racing Cancel) killed it: report cancellation, not a
+            // signal exit, so structured-concurrency cancellation propagates.
+            throw CancellationError()
+        }
 
         let stdout = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
         let stderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
