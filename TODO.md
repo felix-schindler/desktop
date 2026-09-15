@@ -476,3 +476,53 @@ Running notes for later PLAN.md tasks. Append, don't rewrite history.
   `AppStore+Onboarding` + `Stores/GitStore` + tests. `xcodebuild` green; subset
   harness (`ChangesLogicTests`+`ShellTests`+`Task8Tests`+`GitStoreTests`) green.
 - No GH / editor / Copilot / theme / notification code anywhere (scope bans).
+
+## Task 12 → Tasks 13–16 (detail composition seam — read before extending)
+
+- **Files:** `Views/Shell/RepositoryView.swift` (composition only) +
+  `Views/Shell/RepositoryDetailLoading.swift` (thin git adapters) +
+  `Tests/RepositoryDetailTests.swift`. No feature views rewritten; no
+  `electron/` touches. Placeholders `SidebarPlaceholder`/`DetailPlaceholder`
+  deleted.
+- **Changes tab:** per-repo `ChangesStore` built via `store.makeService(repo)`
+  (keeps `MockGitService` previews/tests), synced from `RepositoryState`
+  (`branch` via `repositoryBranchName`, `commitAuthor` via global identity else
+  tip commit, `branches`/`localAuthors`/`mostRecentLocalCommit`). File list +
+  commit box = `ChangesTabView`; detail beside it = `SeamlessDiffSwitcher`
+  (editable, line gutter writes back to `RepositoryState` so tri-state stays
+  in sync; commit still stages full files until Task 4 patch staging).
+  Empty: `NoChangesEmptyState` (Show in Finder → reveal, Create branch →
+  `.createBranch` popup), multi → `MultiSelectionEmptyState`, none selected →
+  `EmptyStateView` prompt. First file auto-selected once per repo.
+- **History tab:** sidebar = `CompareSidebarView` (mode `.history`,
+  `filterHistoryCommits` substring on summary/sha/author, `localCommitSHAs`
+  = first `ahead` commits for the `↑` badge, `onCopySHA` copies, merge CTA
+  left empty for Task 13). Detail = `SelectedCommitsView` (empty →
+  no-commit-selected, noncontiguous → blankslate, both built-in) with
+  read-only `SeamlessDiffSwitcher`. First commit auto-selected once per repo.
+- **Diff loading (`RepositoryDetailLoading`, `GitProcess` buffered):**
+  workdir `git diff [--no-index -- /dev/null path | HEAD -- path]`,
+  commit files `git log <sha> … --raw --numstat` (single, root → `diff
+  NullTreeSHA <sha>`) / `git diff <oldest>^ <latest>` (multi, BadRevision →
+  NullTreeSHA retry), commit diff `git log -m -1 … --patch-with-raw` /
+  `git diff range --patch-with-raw`. Contents via `git show <ref>:<path>`
+  + workdir read. Classification: `DiffParser` text, `isBinary` → image
+  (png/jpg/jpeg/gif/ico/webp/bmp/avif, no DDS) else `.binary`, size gates
+  (`maxDiffBufferSize` → `.unrenderable`, `maxReasonableDiffSize`/5000-char
+  line → `.largeText`), submodule → `.submodule` (config URL best-effort,
+  SHAs parsed from patch). Failures → `.unrenderable`/empty files, never
+  crash, no `.error` spam (previews with fake paths show unrenderable/empty).
+  Prefs persist: `hideWhitespaceInChangesDiff`/`hideWhitespaceInHistoryDiff`,
+  `showSideBySideDiff`, `imageDiffType`, `showDiffCheckMarks`.
+- **Kept:** `Ctrl+Tab` hidden button + `showChanges`/`showHistory`/
+  `goToCommitMessage` menu observers (`Cmd+1/2` via menu). `findInDiff`/
+  `selectAll` already owned by `TextDiffView`. Other menu actions
+  (push/pull/fetch, stash-all, etc.) intentionally left subscriber-less for
+  Task 14; branch/worktree/merge/tag dialogs left for Task 13.
+- **Tests:** `RepositoryDetailTests.runAll() async` (pure: branch/filter/
+  local SHAs/ordering/authors/numstat + live fixture: modified+untracked
+  workdir diff has hunks+contents, commit files contain README + commit diff
+  has hunks+contents). Harness (Foundation-only, no AppStore/Auth):
+  Models + GitProcess/GitError/Parsers + Defaults + RepositoryState +
+  RepositoryDetailLoading + DiffSupport + tests. `xcodebuild` green.
+- No GH / editor / Copilot / theme / notification code anywhere (scope bans).
