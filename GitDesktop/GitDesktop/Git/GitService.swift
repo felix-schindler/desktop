@@ -370,6 +370,17 @@ public final class MockGitService: GitService, Sendable {
     public private(set) var resets: [(mode: GitResetMode, ref: String)] = []
     public private(set) var reverts: [(sha: String, parentCount: Int)] = []
     public private(set) var checkouts: [String] = []
+    // MARK: Task 14 — sync recording (menu/toolbar action tests)
+    /// Remotes passed to `fetch` / `pull`, in call order. Plain `var` (like
+    /// the other stubs) so the `SyncOperations` extension in `Sync.swift`
+    /// can record — `private(set)` is file-scoped and would not compile there.
+    public var fetchedRemotes: [String] = []
+    public var pulledRemotes: [String] = []
+    /// `(remote, localBranch, remoteBranch)` per `push` call.
+    public var pushedBranches: [(remote: String, localBranch: String, remoteBranch: String?)] = []
+    /// When set, `fetch`/`pull`/`push` throw this instead of succeeding
+    /// (sync error-mapping tests; production failures come from git).
+    public var syncFailure: GitError?
 
     public init(
         repositoryPath: String = "/tmp/mock-repo",

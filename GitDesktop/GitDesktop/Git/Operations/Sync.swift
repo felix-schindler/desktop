@@ -651,6 +651,8 @@ extension LiveGitService: SyncOperations {
 
 extension MockGitService: SyncOperations {
     public func fetch(remote: Remote, progress: SyncProgressCallback?, isBackgroundTask: Bool) async throws {
+        if let failure = syncFailure { throw failure }
+        fetchedRemotes.append(remote.name)
         if let progress {
             let parser = FetchProgressParser(remoteName: remote.name)
             progress(parser.initialProgress)
@@ -662,6 +664,8 @@ extension MockGitService: SyncOperations {
     public func fastForwardBranches(refPairs: [String]) async throws {}
 
     public func pull(remote: Remote, progress: SyncProgressCallback?, noVerify: Bool) async throws {
+        if let failure = syncFailure { throw failure }
+        pulledRemotes.append(remote.name)
         if let progress {
             let parser = PullProgressParser(remoteName: remote.name)
             progress(parser.initialProgress)
@@ -677,6 +681,8 @@ extension MockGitService: SyncOperations {
         noVerify: Bool,
         progress: SyncProgressCallback?
     ) async throws {
+        if let failure = syncFailure { throw failure }
+        pushedBranches.append((remote: remote.name, localBranch: localBranch, remoteBranch: remoteBranch))
         if let progress {
             let parser = PushProgressParser(remoteName: remote.name, branchName: localBranch)
             progress(parser.initialProgress)

@@ -213,14 +213,11 @@ struct ToolbarView: View {
     }
 
     private func pushPullPrimaryAction() {
-        // TODO(Task 7): wire to LiveGitService push/pull/fetch/publish.
-        // Task 2 renders the state machine with mock data only.
-        switch pushPull.action {
-        case .publishRepository, .publishBranch, .fetch, .pull, .push, .forcePush:
-            store.closeFoldout()
-        case .progress, .detached:
-            break
-        }
+        // Task 14: one shared code path with the Repository menu
+        // (push/pull/fetch) — see `AppStore.performToolbarPrimaryAction` in
+        // Services/MenuActionRouter.swift. Button progress wiring stays with
+        // Task 13; these calls re-refresh on completion.
+        store.performToolbarPrimaryAction(pushPull)
     }
 
     // MARK: Worktree dropdown (ships enabled)

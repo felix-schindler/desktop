@@ -62,6 +62,15 @@ struct ContentView: View {
         }
         .frame(minWidth: 800, minHeight: 500)
         .background(DialogHost(store: store))
+        // Task 14: single subscriber for router-owned menu actions
+        // (push/pull/fetch, stash-all, branch/tag/merge flows — see
+        // Services/MenuActionRouter.swift). View-owned actions
+        // (tab switches, find/select-all) are ignored by the router and
+        // handled by their observing views, so nothing double-fires.
+        .onReceive(NotificationCenter.default.publisher(for: .gitDesktopMenuAction)) { note in
+            guard let action = GitDesktopMenuAction.from(note) else { return }
+            store.handleMenuAction(action)
+        }
     }
 
     private func restoreOnce() {

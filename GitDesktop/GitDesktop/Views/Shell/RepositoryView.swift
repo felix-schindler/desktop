@@ -37,6 +37,10 @@ struct RepositoryView: View {
             case .showChanges: tab = .changes
             case .showHistory: tab = .history
             case .goToCommitMessage: tab = .changes
+            // Task 14: Compare to Branch opens the History tab (reference
+            // `showHistory(false, true)`). Preselecting the comparison branch
+            // list lands with Task 12's CompareSidebar wiring.
+            case .compareToBranch: tab = .history
             default: break
             }
         }
