@@ -83,6 +83,22 @@ public final class AppStore: ObservableObject {
     /// (mirrors `RepositoryStateCache`).
     public var repositoryStates: [String: RepositoryState] = [:]
 
+    /// Task 11 pipeline: per-repository `GitStore` actors keyed by
+    /// repository `hash` (mirrors `GitStoreCache`). Created lazily via
+    /// `gitStore(for:)`; dropped on removal, re-keyed on alias change.
+    public var gitStores: [String: GitStore] = [:]
+
+    /// Hashes with an in-flight `refreshRepository`. Views use it for
+    /// spinners; it never blocks selection.
+    public var refreshingRepositoryHashes: Set<String> = []
+
+    /// Factory for pipeline services. Production returns `LiveGitService`;
+    /// previews/tests inject `MockGitService` (see `PreviewData` + Task 11
+    /// tests). Kept as a property so `gitStore(for:)` stays a one-liner.
+    public var makeService: @Sendable (Repository) -> any GitService = { repo in
+        LiveGitService(repositoryPath: repo.path)
+    }
+
     public static let popupStackLimit = 50
 
     public init() {}
@@ -116,6 +132,10 @@ public final class AppStore: ObservableObject {
             selection = .repository(state)
         }
         pushRecent(repository.id)
+        // Task 11 pipeline: refresh working-directory/branches/history in
+        // the background. Failures surface via `.error` / Missing view
+        // (see `AppStore+GitPipeline`); selection itself never blocks.
+        Task { await self.refreshRepository(repository) }
     }
 
     public func updateRepositoryState(_ state: RepositoryState) {
@@ -245,6 +265,8 @@ public final class AppStore: ObservableObject {
     public func removeRepository(_ repository: Repository) {
         repositories.removeAll { $0.id == repository.id }
         repositoryStates.removeValue(forKey: repository.hash)
+        gitStores.removeValue(forKey: repository.hash)
+        refreshingRepositoryHashes.remove(repository.hash)
         if case .repository(let state) = selection,
            state.repository.id == repository.id {
             if let next = repositories.first {
@@ -276,6 +298,14 @@ public final class AppStore: ObservableObject {
                 selection = .repository(migrated)
             }
         }
+        // Re-key the pipeline cache alongside the state cache (hash
+        // includes the alias). The actor keeps its service; only the
+        // repository value changes.
+        if let store = gitStores.removeValue(forKey: repository.hash) {
+            gitStores[updated.hash] = store
+            Task { await store.updateRepository(updated) }
+        }
+        refreshingRepositoryHashes.remove(repository.hash)
     }
 
     private func selectAndReturn(_ repository: Repository) -> AppSelection {

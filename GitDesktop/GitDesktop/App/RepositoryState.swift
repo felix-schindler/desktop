@@ -27,6 +27,10 @@ public struct ChangesSelection: Sendable, Equatable {
 }
 
 /// Per-repository state (skeleton). Extended additively by later tasks.
+/// Task 11 adds the pipeline-owned snapshot: recent history (`recentCommits`),
+/// all remotes (`remotes`) and the inferred `defaultBranch`. Earlier fields
+/// keep their Task-1 meaning; later tasks (12–14) read these instead of
+/// calling git directly.
 public struct RepositoryState: Sendable, Equatable, Identifiable {
     public var repository: Repository
     public var workingDirectory: WorkingDirectoryStatus
@@ -36,6 +40,15 @@ public struct RepositoryState: Sendable, Equatable, Identifiable {
     public var selection: ChangesSelection
     public var branches: [Branch]
     public var remote: Remote?
+    /// Recent log (newest first, capped by `GitStore.refresh(historyLimit:)`).
+    /// Feeds the History tab (Task 12) without extra git calls.
+    public var recentCommits: [Commit]
+    /// All configured remotes (Task 7 sync needs the full list, not just
+    /// the current `remote`).
+    public var remotes: [Remote]
+    /// Inferred default branch (local `main`/`master` heuristic; see
+    /// `findDefaultBranch`). Used by branch list grouping + merge targets.
+    public var defaultBranch: Branch?
 
     public init(
         repository: Repository,
@@ -45,7 +58,10 @@ public struct RepositoryState: Sendable, Equatable, Identifiable {
         commitMessage: CommitMessage = .default,
         selection: ChangesSelection = ChangesSelection(),
         branches: [Branch] = [],
-        remote: Remote? = nil
+        remote: Remote? = nil,
+        recentCommits: [Commit] = [],
+        remotes: [Remote] = [],
+        defaultBranch: Branch? = nil
     ) {
         self.repository = repository
         self.workingDirectory = workingDirectory
@@ -55,6 +71,9 @@ public struct RepositoryState: Sendable, Equatable, Identifiable {
         self.selection = selection
         self.branches = branches
         self.remote = remote
+        self.recentCommits = recentCommits
+        self.remotes = remotes
+        self.defaultBranch = defaultBranch
     }
 
     public var id: Int { repository.id }

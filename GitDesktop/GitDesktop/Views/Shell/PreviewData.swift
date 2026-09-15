@@ -15,16 +15,106 @@ public func makePreviewStore() -> AppStore {
 /// Fill an empty store with smoke-test data. Used by previews and by
 /// `ContentView` when `GITDESKTOP_SEED_PREVIEW=1` (DEBUG only, Task 9 owns
 /// real persistence and removes this path).
+///
+/// Task 11: `selectRepository` triggers an async `GitStore.refresh()`. The
+/// preview paths don't exist on disk, so a Live service would fail and route
+/// to Missing. Inject per-repo `MockGitService`s mirroring `previewState`
+/// so the pipeline refresh is idempotent and previews keep their
+/// differentiated file lists.
 @MainActor
 public func populatePreviewData(_ store: AppStore) {
     guard store.repositories.isEmpty else { return }
     let repositories = previewRepositories()
     store.setRepositories(repositories)
+    var mocks: [String: MockGitService] = [:]
     for repository in repositories {
-        store.updateRepositoryState(previewState(for: repository))
+        let state = previewState(for: repository)
+        store.updateRepositoryState(state)
+        mocks[repository.hash] = previewMock(for: repository, state: state)
+    }
+    let captured = mocks
+    store.makeService = { repo in
+        captured[repo.hash] ?? MockGitService.preview
     }
     if let first = repositories.first {
         store.selectRepository(first)
+    }
+}
+
+/// Mock whose stubs mirror a preview `RepositoryState`, so `GitStore.refresh()`
+/// rebuilds the same working-directory/branches/remotes. Missing repos get
+/// `stubStatus == nil` so refresh throws `.notAGitRepository` and routes to
+/// the Missing view (same as a vanished real repo).
+@MainActor
+func previewMock(for repository: Repository, state: RepositoryState) -> MockGitService {
+    let mock = MockGitService(repositoryPath: repository.path)
+    if repository.missing {
+        mock.stubStatus = nil
+        mock.stubBranches = []
+        mock.stubRemotes = []
+        mock.stubCommits = []
+        return mock
+    }
+    let headers: StatusParser.StatusHeaders = {
+        switch state.tip {
+        case .valid(let branch):
+            return StatusParser.StatusHeaders(
+                currentBranch: branch.name,
+                currentUpstreamBranch: branch.upstream,
+                currentTip: branch.tip.sha,
+                aheadBehind: state.aheadBehind)
+        case .detached(let sha):
+            return StatusParser.StatusHeaders(
+                currentBranch: nil,
+                currentUpstreamBranch: nil,
+                currentTip: sha,
+                aheadBehind: state.aheadBehind)
+        case .unborn(let ref):
+            let name = ref.hasPrefix("refs/heads/")
+                ? String(ref.dropFirst("refs/heads/".count)) : ref
+            return StatusParser.StatusHeaders(
+                currentBranch: name,
+                currentUpstreamBranch: nil,
+                currentTip: nil,
+                aheadBehind: nil)
+        case .unknown:
+            return StatusParser.StatusHeaders()
+        }
+    }()
+    mock.stubStatus = RepositoryStatus(
+        headers: headers,
+        workingDirectory: state.workingDirectory)
+    mock.stubBranches = state.branches
+    mock.stubRemotes = state.remote.map { [$0] } ?? []
+    // One commit per tip SHA so History previews have content. The summary
+    // matches the branch to keep the mock readable.
+    let tipSHA: String? = {
+        if case .valid(let branch) = state.tip { return branch.tip.sha }
+        return nil
+    }()
+    if let tipSHA {
+        let identity = CommitIdentity(
+            name: "Ada Lovelace", email: "ada@example.com",
+            date: Date(timeIntervalSince1970: 1_700_000_000), tzOffset: 0)
+        mock.stubCommits = [Commit(
+            sha: tipSHA, shortSha: String(tipSHA.prefix(7)),
+            summary: "Preview commit on \(state.tipDescription)",
+            body: "",
+            author: identity, committer: identity,
+            parentSHAs: [], trailers: [])]
+    }
+    return mock
+}
+
+private extension RepositoryState {
+    /// Short human description of the tip for mock commit summaries.
+    var tipDescription: String {
+        switch tip {
+        case .valid(let branch): return branch.name
+        case .detached(let sha): return shortenSHA(sha)
+        case .unborn(let ref): return ref
+        case .unknown: return "unknown"
+        }
     }
 }
 
