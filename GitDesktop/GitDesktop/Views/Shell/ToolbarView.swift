@@ -5,11 +5,19 @@ import SwiftUI
 // Dark toolbar strip (Docs/04-shell-toolbar.md §2, `toolbar/*`).
 // Layout: [Repo foldout][Branch dropdown][Push/Pull split][Fetch state] + worktree.
 // Height 50, dark gray-900 bg with white text; an open foldout inverts its
-// button (white bg + dark text). Tooltips via `help()`. No real git yet:
-// primary actions are stubs owned by Tasks 5–7 (see TODOs).
+// button (white bg + dark text). Tooltips via `help()`.
+// Task 13: primary + split-menu actions run real fetch/pull/push via the
+// Task-11 pipeline with progress wired to the button (`syncTitle`).
 
 struct ToolbarView: View {
     @ObservedObject var store: AppStore
+    /// In-flight sync title (`Fetching…`/`Pulling…`/`Pushing…`). While non-nil
+    /// the push/pull button renders the `.progress` state (disabled + spinner)
+    /// via `derivePushPullState(progressTitle:)`.
+    @State private var syncTitle: String?
+    /// Last successful fetch/pull timestamp per repository hash (feeds the
+    /// `Last fetched …` detail line).
+    @State private var lastFetchedByRepo: [String: Date] = [:]
 
     private var state: RepositoryState? { store.selectedState }
     private var repository: Repository? { store.selectedRepository }
@@ -18,7 +26,9 @@ struct ToolbarView: View {
         derivePushPullState(
             tip: state?.tip ?? .unknown,
             remoteName: state?.remote?.name,
-            aheadBehind: state?.aheadBehind)
+            aheadBehind: state?.aheadBehind,
+            progressTitle: syncTitle,
+            lastFetched: repository.map { lastFetchedByRepo[$0.hash] } ?? nil)
     }
 
     private var branchButton: BranchButtonState {
@@ -195,6 +205,13 @@ struct ToolbarView: View {
     }
 
     private var pushPullBadge: AnyView {
+        if case .progress = pushPull.action {
+            return AnyView(
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 16, height: 16)
+            )
+        }
         if let aheadBehind = pushPull.aheadBehind,
            let badge = aheadBehindBadgeText(
                ahead: aheadBehind.ahead,
@@ -213,14 +230,121 @@ struct ToolbarView: View {
     }
 
     private func pushPullPrimaryAction() {
-        // TODO(Task 7): wire to LiveGitService push/pull/fetch/publish.
-        // Task 2 renders the state machine with mock data only.
-        switch pushPull.action {
-        case .publishRepository, .publishBranch, .fetch, .pull, .push, .forcePush:
+        guard syncTitle == nil else { return }
+        guard let repository, let currentState = state else {
             store.closeFoldout()
+            return
+        }
+        switch pushPull.action {
+        case .publishRepository:
+            // No remote yet — open Repository Settings so the user can add one.
+            store.closeFoldout()
+            store.showPopup(.repositorySettings(repositoryID: repository.id, initialTab: nil))
+        case .publishBranch:
+            guard let remote = currentState.remote ?? currentState.remotes.first,
+                  let branchName = currentBranchName
+            else {
+                store.closeFoldout()
+                store.showPopup(.repositorySettings(repositoryID: repository.id, initialTab: nil))
+                return
+            }
+            runSync(title: "Pushing…") {
+                await shellPush(
+                    store: store, repository: repository, remote: remote,
+                    localBranch: branchName, remoteBranch: nil, forceWithLease: false)
+            }
+        case .fetch(let remoteName):
+            guard let remote = resolveRemote(named: remoteName) else {
+                store.closeFoldout()
+                return
+            }
+            runSync(title: "Fetching…") {
+                let ok = await shellFetch(store: store, repository: repository, remote: remote)
+                if ok { markFetched(repository) }
+            }
+        case .pull(let remoteName, _):
+            guard let remote = resolveRemote(named: remoteName) else {
+                store.closeFoldout()
+                return
+            }
+            runSync(title: "Pulling…") {
+                let ok = await shellPull(store: store, repository: repository, remote: remote)
+                if ok { markFetched(repository) }
+            }
+        case .push(let remoteName):
+            guard let remote = resolveRemote(named: remoteName),
+                  let branchName = currentBranchName
+            else {
+                store.closeFoldout()
+                return
+            }
+            // Push to the tracked upstream when present, else set-upstream.
+            let remoteBranch = currentUpstreamWithoutRemote
+            runSync(title: "Pushing…") {
+                await shellPush(
+                    store: store, repository: repository, remote: remote,
+                    localBranch: branchName, remoteBranch: remoteBranch,
+                    forceWithLease: false)
+            }
+        case .forcePush(let remoteName):
+            guard let remote = resolveRemote(named: remoteName),
+                  let branchName = currentBranchName
+            else {
+                store.closeFoldout()
+                return
+            }
+            // Gate on the force-push confirm (mirrors the reference
+            // `confirmOrForcePush` + `Defaults.confirmForcePush`).
+            if Defaults.bool(Defaults.confirmForcePush, default: true) {
+                store.closeFoldout()
+                let upstream = currentUpstream ?? "\(remote.name)/\(branchName)"
+                store.showPopup(.confirmForcePush(repositoryID: repository.id, upstreamBranch: upstream))
+            } else {
+                let remoteBranch = currentUpstreamWithoutRemote ?? branchName
+                runSync(title: "Force pushing…") {
+                    await shellPush(
+                        store: store, repository: repository, remote: remote,
+                        localBranch: branchName, remoteBranch: remoteBranch,
+                        forceWithLease: true)
+                }
+            }
         case .progress, .detached:
             break
         }
+    }
+
+    private var currentBranchName: String? {
+        if case .valid(let branch) = state?.tip { return branch.name }
+        return nil
+    }
+
+    private var currentUpstream: String? {
+        if case .valid(let branch) = state?.tip { return branch.upstream }
+        return nil
+    }
+
+    private var currentUpstreamWithoutRemote: String? {
+        if case .valid(let branch) = state?.tip { return branch.upstreamWithoutRemote }
+        return nil
+    }
+
+    private func resolveRemote(named name: String) -> Remote? {
+        if let remote = state?.remotes.first(where: { $0.name == name }) { return remote }
+        if state?.remote?.name == name { return state?.remote }
+        return nil
+    }
+
+    private func runSync(title: String, work: @escaping () async -> Void) {
+        store.closeFoldout()
+        syncTitle = title
+        Task {
+            await work()
+            syncTitle = nil
+        }
+    }
+
+    private func markFetched(_ repository: Repository) {
+        lastFetchedByRepo[repository.hash] = Date()
     }
 
     // MARK: Worktree dropdown (ships enabled)

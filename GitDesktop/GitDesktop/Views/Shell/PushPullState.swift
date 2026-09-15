@@ -66,47 +66,51 @@ public func derivePushPullState(
     progressTitle: String? = nil,
     rebaseInProgress: Bool = false,
     pullWithRebase: Bool = false,
-    forcePushRecommended: Bool = false
+    forcePushRecommended: Bool = false,
+    lastFetched: Date? = nil
 ) -> PushPullViewState {
     if let progressTitle {
-        return PushPullViewState(action: .progress(title: progressTitle), isEnabled: false)
+        return PushPullViewState(action: .progress(title: progressTitle), lastFetched: lastFetched, isEnabled: false)
     }
     guard let remoteName else {
         // No remote: publishing targets the app, not GitHub (no GH per scope).
-        return PushPullViewState(action: .publishRepository)
+        return PushPullViewState(action: .publishRepository, lastFetched: lastFetched)
     }
     switch tip.kind {
     case .unborn:
-        return PushPullViewState(action: .fetch(remote: remoteName))
+        return PushPullViewState(action: .fetch(remote: remoteName), lastFetched: lastFetched)
     case .detached:
-        return PushPullViewState(action: .detached(rebaseInProgress: rebaseInProgress), isEnabled: false)
+        return PushPullViewState(action: .detached(rebaseInProgress: rebaseInProgress), lastFetched: lastFetched, isEnabled: false)
     case .unknown:
-        return PushPullViewState(action: .fetch(remote: remoteName), isEnabled: false)
+        return PushPullViewState(action: .fetch(remote: remoteName), lastFetched: lastFetched, isEnabled: false)
     case .valid:
         break
     }
     guard let aheadBehind else {
         return PushPullViewState(
-            action: .publishBranch, showsSplitMenu: true)
+            action: .publishBranch, lastFetched: lastFetched, showsSplitMenu: true)
     }
     if aheadBehind.ahead == 0 && aheadBehind.behind == 0 && numTagsToPush == 0 {
-        return PushPullViewState(action: .fetch(remote: remoteName))
+        return PushPullViewState(action: .fetch(remote: remoteName), lastFetched: lastFetched)
     }
     if forcePushRecommended {
         return PushPullViewState(
             action: .forcePush(remote: remoteName),
             aheadBehind: aheadBehind, numTagsToPush: numTagsToPush,
+            lastFetched: lastFetched,
             showsSplitMenu: true)
     }
     if aheadBehind.behind > 0 {
         return PushPullViewState(
             action: .pull(remote: remoteName, rebase: pullWithRebase),
             aheadBehind: aheadBehind, numTagsToPush: numTagsToPush,
+            lastFetched: lastFetched,
             showsSplitMenu: true, showsForcePushMenuItem: true)
     }
     return PushPullViewState(
         action: .push(remote: remoteName),
         aheadBehind: aheadBehind, numTagsToPush: numTagsToPush,
+        lastFetched: lastFetched,
         showsSplitMenu: true)
 }
 

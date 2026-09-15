@@ -70,6 +70,7 @@ public enum PopupType: String, Codable, Sendable {
     case renameWorktree
     case deleteWorktree
     case deleteWorktreeFailed
+    case merge
 }
 
 public enum Popup: Sendable, Equatable, Identifiable {
@@ -134,6 +135,7 @@ public enum Popup: Sendable, Equatable, Identifiable {
     case renameWorktree(repositoryID: Int, worktreePath: String)
     case deleteWorktree(repositoryID: Int, worktreePath: String)
     case deleteWorktreeFailed(repositoryID: Int, worktreePath: String, message: String)
+    case merge(repositoryID: Int)
 
     public var type: PopupType {
         switch self {
@@ -198,6 +200,7 @@ public enum Popup: Sendable, Equatable, Identifiable {
         case .renameWorktree: return .renameWorktree
         case .deleteWorktree: return .deleteWorktree
         case .deleteWorktreeFailed: return .deleteWorktreeFailed
+        case .merge: return .merge
         }
     }
 

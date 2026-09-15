@@ -1,10 +1,15 @@
+import AppKit
 import SwiftUI
 
 // MARK: - FoldoutViews
 // Popover contents for the one-open `Foldout` set (Docs/04-shell-toolbar.md
 // §5). One open at a time is enforced by `AppStore.currentFoldout`; popovers
-// dismiss via overlay click / Esc automatically. Full containers land in
-// their owning tasks (Branches → 5, Worktrees → 8, Push/Pull actions → 7).
+// dismiss via overlay click / Esc automatically.
+//
+// Task 13 composition: the branch dropdown hosts the real
+// `BranchesContainerView` (checkout/create/rename/delete via the Task-11
+// pipeline), the worktree dropdown hosts the real `WorktreeList` (+ switch),
+// and the push/pull split menu runs real fetch/force-push.
 
 // MARK: Repository foldout
 
@@ -18,82 +23,134 @@ struct RepositoryFoldoutContent: View {
     }
 }
 
-// MARK: Branch foldout (BranchesContainer stub — Task 5)
+// MARK: Branch foldout (BranchesContainer — Task 13)
 
 struct BranchFoldoutContent: View {
     @ObservedObject var store: AppStore
     @State private var filter = ""
+    @State private var isCheckingOut = false
 
-    private var branches: [Branch] {
-        let all = store.selectedState?.branches ?? []
-        let needle = filter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else { return all }
-        return all.filter { $0.name.lowercased().contains(needle) }
-    }
+    private var repository: Repository? { store.selectedRepository }
+    private var state: RepositoryState? { store.selectedState }
 
-    private var currentBranchName: String? {
-        if case .valid(let branch) = store.selectedState?.tip { return branch.name }
+    private var allBranches: [Branch] { state?.branches ?? [] }
+    private var currentBranch: Branch? {
+        if case .valid(let branch) = state?.tip { return branch }
         return nil
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                    .font(.system(size: 12))
-                TextField("Filter branches", text: $filter)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 30)
-            Divider()
-            if branches.isEmpty {
-                Text("No branches match")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(branches) { branch in
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.triangle.branch")
-                            .foregroundStyle(.secondary)
-                            .font(.system(size: 12))
-                        Text(branch.name)
-                            .font(.system(size: 12))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer()
-                        if branch.name == currentBranchName {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                    // TODO(Task 5): checkout on select; context menus
-                    // Rename/Delete per `10-interactions.md` §3.
-                    .onTapGesture { store.closeFoldout() }
-                }
-                .listStyle(.plain)
-            }
-            Divider()
-            HStack {
-                Button("New Branch…") {
-                    if let id = store.selectedRepository?.id {
-                        store.showPopup(.createBranch(
-                            repositoryID: id, initialName: nil, targetCommitSHA: nil))
-                    }
-                    store.closeFoldout()
-                }
-                .buttonStyle(.link)
-                .disabled(store.selectedRepository == nil)
-                Spacer()
-            }
-            .padding(8)
-        }
+        BranchesContainerView(
+            allBranches: allBranches,
+            defaultBranch: state?.defaultBranch,
+            currentBranch: currentBranch,
+            recentBranches: [],
+            filterText: $filter,
+            canCreateNewBranch: repository != nil,
+            hideFilterRow: false,
+            isCommitsDragActive: false,
+            onSelect: { branch in select(branch) },
+            onCreateNewBranch: { name in createNew(name) },
+            onRename: { branch in rename(branch) },
+            onDelete: { branch in remove(branch) },
+            onCheckoutInNewWorktree: { branch in checkoutInNewWorktree(branch) },
+            onDropCommits: { branch, shas in dropCommits(branch, shas) },
+            onMergeIntoCurrent: { mergeIntoCurrent() }
+        )
         .frame(width: 365, height: 380)
+        .overlay {
+            if isCheckingOut {
+                ZStack {
+                    Color(nsColor: .windowBackgroundColor).opacity(0.6)
+                    ProgressView("Checking out…")
+                        .padding(12)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
+        .disabled(isCheckingOut)
+    }
+
+    private func select(_ branch: Branch) {
+        guard let repository, !isCheckingOut else { return }
+        // Tapping the current branch just dismisses.
+        if branch.ref == currentBranch?.ref {
+            store.closeFoldout()
+            return
+        }
+        isCheckingOut = true
+        Task {
+            await shellCheckoutBranch(store: store, repository: repository, branch: branch)
+            isCheckingOut = false
+            store.closeFoldout()
+        }
+    }
+
+    private func createNew(_ name: String) {
+        guard let id = repository?.id else { return }
+        store.closeFoldout()
+        store.showPopup(.createBranch(repositoryID: id, initialName: name, targetCommitSHA: nil))
+    }
+
+    private func rename(_ branch: Branch) {
+        guard let id = repository?.id else { return }
+        store.closeFoldout()
+        store.showPopup(.renameBranch(repositoryID: id, branchRef: branch.ref))
+    }
+
+    private func remove(_ branch: Branch) {
+        guard let id = repository?.id else { return }
+        store.closeFoldout()
+        // `existsOnRemote` drives the also-delete-remote checkbox.
+        let existsOnRemote = branch.upstreamRemoteName != nil
+        store.showPopup(.deleteBranch(repositoryID: id, branchRef: branch.ref, existsOnRemote: existsOnRemote))
+    }
+
+    private func checkoutInNewWorktree(_ branch: Branch) {
+        guard let id = repository?.id else { return }
+        store.closeFoldout()
+        store.showPopup(.addWorktree(
+            repositoryID: id,
+            initialBranchName: branch.nameWithoutRemote,
+            initialWorktreeName: nil))
+    }
+
+    private func dropCommits(_ branch: Branch, _ shas: [String]) {
+        // Commit-drag → cherry-pick seam (Task 6 owns the full flow; the
+        // shell runs the op + banner so the drop target is live).
+        guard let repository, !shas.isEmpty else { return }
+        store.closeFoldout()
+        Task {
+            let service = LiveMultiCommitService()
+            do {
+                let result = try await service.cherryPick(repositoryPath: repository.path, shas: shas)
+                await store.refreshRepository(repository)
+                switch result {
+                case .completedWithoutError:
+                    store.setBanner(.successfulCherryPick(
+                        targetBranchName: branch.nameWithoutRemote,
+                        count: shas.count, actionToken: UUID()))
+                case .conflictsEncountered, .outstandingFilesNotStaged:
+                    store.setBanner(.cherryPickConflictsFound(
+                        targetBranchName: branch.nameWithoutRemote, actionToken: UUID()))
+                    store.showPopup(.multiCommitOperation(repositoryID: repository.id))
+                case .unableToStart, .error:
+                    break
+                }
+            } catch {
+                if let gitError = error as? GitError {
+                    store.showPopup(.error(message: gitError.displayMessage))
+                } else {
+                    store.showPopup(.error(message: error.localizedDescription))
+                }
+            }
+        }
+    }
+
+    private func mergeIntoCurrent() {
+        guard let id = repository?.id else { return }
+        store.closeFoldout()
+        store.showPopup(.merge(repositoryID: id))
     }
 }
 
@@ -136,41 +193,48 @@ struct AddMenuFoldoutContent: View {
     }
 }
 
-// MARK: Push/pull foldout (Fetch / Force push options)
+// MARK: Push/pull foldout (Fetch / Force push — Task 13 runs the real ops)
 
 struct PushPullFoldoutContent: View {
     @ObservedObject var store: AppStore
     var pushPull: PushPullViewState
+    @State private var isWorking = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             foldoutButton(
                 title: fetchTitle,
                 detail: "Fetch the remote without merging"
-                // TODO(Task 7): dispatcher.fetch(UserInitiatedTask).
             ) {
-                store.closeFoldout()
+                runFetch()
             }
+            .disabled(isWorking || repository == nil || remote == nil)
             if pushPull.showsForcePushMenuItem {
                 foldoutButton(
                     title: forcePushTitle,
                     detail: "Overwrite the remote branch"
-                    // TODO(Task 6/7): confirmOrForcePush + warn-force-push dialog.
                 ) {
-                    if let id = store.selectedRepository?.id,
-                       let remote = remoteName {
-                        store.showPopup(.confirmForcePush(
-                            repositoryID: id, upstreamBranch: "\(remote)/branch"))
-                    }
-                    store.closeFoldout()
+                    confirmForcePush()
                 }
+                .disabled(isWorking || repository == nil || remote == nil)
+            }
+            if isWorking {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Working…").font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
             }
         }
         .padding(6)
         .frame(width: 300)
     }
 
-    private var remoteName: String? { store.selectedState?.remote?.name }
+    private var repository: Repository? { store.selectedRepository }
+    private var remote: Remote? { store.selectedState?.remote }
+
+    private var remoteName: String? { remote?.name }
 
     private var fetchTitle: String {
         remoteName.map { "Fetch \($0)" } ?? "Fetch"
@@ -178,6 +242,36 @@ struct PushPullFoldoutContent: View {
 
     private var forcePushTitle: String {
         remoteName.map { "Force push \($0)…" } ?? "Force push…"
+    }
+
+    private func runFetch() {
+        guard let repository, let remote, !isWorking else {
+            store.closeFoldout()
+            return
+        }
+        isWorking = true
+        Task {
+            await shellFetch(store: store, repository: repository, remote: remote)
+            isWorking = false
+            store.closeFoldout()
+        }
+    }
+
+    private func confirmForcePush() {
+        guard let id = repository?.id, let remote else {
+            store.closeFoldout()
+            return
+        }
+        // The actual force push runs after the confirm dialog.
+        let branchName = currentBranchName ?? "branch"
+        store.closeFoldout()
+        store.showPopup(.confirmForcePush(
+            repositoryID: id, upstreamBranch: "\(remote.name)/\(branchName)"))
+    }
+
+    private var currentBranchName: String? {
+        if case .valid(let branch) = store.selectedState?.tip { return branch.name }
+        return nil
     }
 
     private func foldoutButton(title: String, detail: String, action: @escaping () -> Void) -> some View {
@@ -195,50 +289,66 @@ struct PushPullFoldoutContent: View {
     }
 }
 
-// MARK: Worktree foldout (WorktreeList stub — Task 8)
+// MARK: Worktree foldout (WorktreeList — Task 13)
 
 struct WorktreeFoldoutContent: View {
     @ObservedObject var store: AppStore
+    @State private var worktrees: [WorktreeEntry] = []
+    @State private var filter = ""
+    @State private var isLoading = false
+
+    private var repository: Repository? { store.selectedRepository }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: "tree")
-                    .foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(store.selectedRepository?.name ?? "No repository")
-                        .font(.system(size: 12, weight: .semibold))
-                        .lineLimit(1)
-                    Text("Main worktree")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "checkmark")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
+        WorktreeList(
+            worktrees: worktrees,
+            currentPath: repository?.path,
+            filterText: filter,
+            canCreateNewWorktree: repository != nil,
+            onFilterChanged: { filter = $0 },
+            onSwitch: { entry in
+                guard let repository else { return }
+                shellSwitchWorktree(store: store, repository: repository, worktree: entry)
+            },
+            onCreateNew: {
+                guard let id = repository?.id else { return }
+                store.closeFoldout()
+                store.showPopup(.addWorktree(
+                    repositoryID: id, initialBranchName: nil, initialWorktreeName: nil))
+            },
+            onRename: { entry in
+                guard let id = repository?.id else { return }
+                store.closeFoldout()
+                store.showPopup(.renameWorktree(repositoryID: id, worktreePath: entry.path))
+            },
+            onDelete: { entry in
+                guard let id = repository?.id else { return }
+                store.closeFoldout()
+                store.showPopup(.deleteWorktree(repositoryID: id, worktreePath: entry.path))
+            },
+            onRevealInFinder: { entry in
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: entry.path)])
             }
-            .padding(8)
-            Divider()
-            // TODO(Task 8): full WorktreeList (Main/Linked, filter, switch +
-            // state transfer, Add/Rename/Delete + failed dialog).
-            HStack {
-                Button("New Worktree…") {
-                    if let id = store.selectedRepository?.id {
-                        store.showPopup(.addWorktree(
-                            repositoryID: id,
-                            initialBranchName: nil,
-                            initialWorktreeName: nil))
-                    }
-                    store.closeFoldout()
-                }
-                .buttonStyle(.link)
-                .disabled(store.selectedRepository == nil)
-                Spacer()
+        )
+        .frame(width: 320, height: 380)
+        .overlay {
+            if isLoading {
+                ProgressView().padding(8)
             }
-            .padding(8)
         }
-        .frame(width: 320)
+        .task(id: repository?.hash) { await load() }
+    }
+
+    private func load() async {
+        guard let repository else {
+            worktrees = []
+            return
+        }
+        isLoading = true
+        defer { isLoading = false }
+        let service = await store.gitService(for: repository)
+        // `worktrees()` is a `GitService` requirement, so mocks work too.
+        worktrees = (try? await service.worktrees()) ?? []
     }
 }
 
