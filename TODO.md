@@ -425,3 +425,54 @@ Running notes for later PLAN.md tasks. Append, don't rewrite history.
   AppleIntelligenceService + CrashReporter + HelpViews + Task10Tests.
 - No GH / editor / Copilot / theme / notification code anywhere (scope bans).
 - No GH / editor / Copilot / theme / notification code anywhere (scope bans).
+
+## Task 11 → Tasks 12–14 (pipeline seam — read before composing)
+
+- **Seam:** `Stores/GitStore.swift` (`actor GitStore`) + `App/AppStore+GitPipeline.swift`.
+  Tasks 12–14 code against this, never redefine it:
+  - `store.gitStore(for: repo)` — cached actor (keyed by `repo.hash`).
+  - `await store.gitService(for: repo)` — direct service for thin adapters
+    (diff contents, commit files). Prefer mutations via the actor.
+  - `await store.refreshRepository(repo)` / `refreshSelectedRepository()` —
+    reload status+branches+log+remotes and publish `RepositoryState`.
+  - `await store.performPipelineMutation(for: repo) { service in … }` —
+    mutations run serially through the actor then re-refresh; returns nil +
+    posts `.error` on failure (never throws to views). Sync ops cast inside:
+    `guard let sync = service as? any SyncOperations else { … }`.
+  - `store.isRefreshing(repo)` / `isRefreshingSelectedRepository` drive spinners.
+- **`RepositoryState` new fields (additive, defaulted):** `recentCommits: [Commit]`
+  (newest-first, `historyLimit: 100`), `remotes: [Remote]`, `defaultBranch: Branch?`.
+  `refresh()` preserves `commitMessage` + `selection` drafts. History tab reads
+  `recentCommits`; toolbar reads `remote`/`remotes`/`aheadBehind`; branch list
+  reads `branches` + `defaultBranch`.
+- **Pure helpers (testable, no git):** `findDefaultRemote` (origin else first,
+  mirrors reference), `findCurrentRemote` (upstream remote else default),
+  `resolveTip(headers:branches:)` (valid/detached/unborn/unknown; prefers the
+  branches-list upstream), `findDefaultBranch` (local `main` → `master` → first
+  sorted; remote-HEAD resolution deferred — add a `symbolic-ref` call if Task 13
+  needs exact default), `buildRepositoryState` (merge helper).
+- **Failure routing (`routeRefreshFailure`):** vanished path → Missing view via
+  `selectMissingRepository` (no popup); `.notAGitRepository`/`.unsafeDirectory`
+  → Missing; everything else → `.error` with `displayMessage`. `selectRepository`
+  fires `Task { await refreshRepository }` (deduped per hash via
+  `refreshingRepositoryHashes`) — selection never blocks on git.
+- **Previews:** `Views/Shell/PreviewData.swift` injects per-repo `MockGitService`s
+  via `store.makeService` BEFORE `selectRepository`, so pipeline refresh is
+  idempotent (file lists stay differentiated). Missing preview repo uses
+  `stubStatus == nil` → routes to Missing like a real vanished repo. Production
+  default `makeService` is `LiveGitService`; tests inject `Mock`/`FailingGitService`.
+- **Cache lifecycle:** `removeRepository` drops `gitStores[hash]`; `setAlias`
+  re-keys the actor + `await store.updateRepository(updated)`; `relocateRepository`
+  drops the stale actor (old path) so the next select builds a fresh Live service.
+  `GitStore.updateRepository` recreates Live services on path change but keeps
+  injected mocks (previews/tests).
+- **Tests:** `Tests/GitStoreTests.swift` (`@MainActor`, `runAll() async`):
+  pure helper groups + live fixture (`init → commit → branch feature → dirty WD`;
+  asserts status/branches/log/tip) + `.error` on `FailingGitService` (existing path
+  keeps `.repository` selection) + vanished path → `.missing` with no popup.
+  Run via `swiftc -module-name GitDesktop` harness (see Task 11 session): Models +
+  Git + Parsers + Operations + Progress (minus `MultiCommitAppProgress`) + Auth +
+  Persistence + `ChangesLogic` + `AppState`/`RepositoryState`/`AppStore+GitPipeline`/
+  `AppStore+Onboarding` + `Stores/GitStore` + tests. `xcodebuild` green; subset
+  harness (`ChangesLogicTests`+`ShellTests`+`Task8Tests`+`GitStoreTests`) green.
+- No GH / editor / Copilot / theme / notification code anywhere (scope bans).

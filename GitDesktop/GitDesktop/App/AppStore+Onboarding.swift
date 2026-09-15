@@ -91,6 +91,10 @@ public extension AppStore {
         setRepositories(merged)
         repositoryStates.removeValue(forKey: repository.hash)
         repositoryStates[updated.hash] = RepositoryState(repository: updated)
+        // Drop the stale pipeline actor (bound to the old path); the
+        // subsequent `selectRepository` creates a fresh Live service.
+        gitStores.removeValue(forKey: repository.hash)
+        refreshingRepositoryHashes.remove(repository.hash)
         selectRepository(updated)
         persistRepositories()
         return updated
