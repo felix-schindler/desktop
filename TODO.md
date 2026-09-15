@@ -477,6 +477,8 @@ Running notes for later PLAN.md tasks. Append, don't rewrite history.
   harness (`ChangesLogicTests`+`ShellTests`+`Task8Tests`+`GitStoreTests`) green.
 - No GH / editor / Copilot / theme / notification code anywhere (scope bans).
 
+- No GH / editor / Copilot / theme / notification code anywhere (scope bans).
+
 ## Task 12 → Tasks 13–16 (detail composition seam — read before extending)
 
 - **Files:** `Views/Shell/RepositoryView.swift` (composition only) +
@@ -588,4 +590,52 @@ Running notes for later PLAN.md tasks. Append, don't rewrite history.
   with first-reachable heuristic; `DeleteTag` assumes unpushed (no pushed guard
   without remote ls); checkout with dirty WD surfaces `.error`/`.localChanges
   Overwritten` via `routeRefreshFailure` (no auto-stash).
+
+## Task 14 → Tasks 13, 16 (menu/toolbar subscriptions — all Task 10 orphans owned)
+
+- **Seam:** `Services/MenuActionRouter.swift` + `AppStore.handleMenuAction(_:)`,
+  observed once in `ContentView.mainShell` (always mounted). `Commands` menus
+  still only POST notifications; the toolbar calls the same `AppStore` methods
+  directly (`performToolbarPrimaryAction` → `menuPush`/`menuPull`/`menuFetch`/
+  `menuForcePush`/`menuPublishSetup`) — one code path, no duplicates.
+  Pure helpers (`ownerOfMenuAction`, `isMenuActionEnabled`,
+  `resolveMenuSyncTarget`, `updateFromDefaultTarget`, `toolbarSyncRequest`,
+  …) are unit-tested in `Tests/Task14Tests.swift` (12 groups incl. a live
+  `menuStashAll` fixture round-trip; harness: Task 11 file list +
+  `AppStore+GitPipeline` + `Stores/GitStore` + `Services/MenuActionRouter` +
+  `Views/Shell/PushPullState` + `Task10Tests`/`ShellTests`/`GitStoreTests`/
+  `Task14Tests`/`ChangesLogicTests`/`Task8Tests` — all green).
+- **Behavior map (reference `app.tsx` + `menu-update.ts`):** push/pull/fetch =
+  real `SyncOperations` through the `GitStore` actor + Task 7 sync error chain
+  (`pushNeedsPull`, auth sheets) via new `performSyncPipelineMutation`
+  (vanished path → Missing, like `routeRefreshFailure`); stash-all = stage-all
+  + `createStash` through `performPipelineMutation`; discard-all/rename/delete/
+  create-tag/merge/squash/rebase/update-from-default/create-branch = their
+  confirm/flow popups (execution stays with Tasks 5–8 dialogs); compare =
+  History tab (`RepositoryView` observes `.compareToBranch`); select-all gap =
+  `ChangesSidebarView` selects visible files (`TextDiffView` already covered
+  find + diff select-all).
+- **Deliberate deviations (reference parity notes):** publish-with-no-remote
+  (menu push/pull/fetch + toolbar Publish states) → Repository Settings/Remote
+  tab — there is no GH publish dialog per scope. Update-from-default OPENS the
+  merge flow instead of merging directly, so conflicts land in the wizard UI.
+  `discardAll` in `Commands` now routes via `store.menuDiscardAll()`, which
+  hides the "don't ask again" row per the reference (`showDiscardChangesSetting
+  = false`; was `true`).
+- **For Task 13 (coordinate, do not duplicate):** `Popup.multiCommitOperation`
+  carries NO merge-vs-squash-vs-rebase-vs-update discriminator — all four open
+  the same dialog today. Add the mode (or read it from multi-commit operation
+  state) when rendering the bespoke wizard, and preselect `state.defaultBranch`
+  in the choose-branch step for update-from-default. The push/pull split-menu
+  Fetch item should call `store.menuFetch()`; force-push execution (with the
+  `Defaults.confirmForcePush` gate) stays with Tasks 6–7. Button progress
+  wiring plugs into `performSyncPipelineMutation`'s `progress:` args (nil now).
+- **For Task 16 (known gaps):** menu routing is focus-unaware (by design, like
+  `TextDiffView`): `Cmd+A` while typing in the commit box also selects the
+  file list. Scope menu routing to the focused view if it annoys. `Cmd+A` in
+  plain text fields lost native select-all when Task 10 overrode the Edit
+  menu — pre-existing, not a Task 14 regression. `MockGitService` gained
+  additive sync recording (`fetchedRemotes`/`pulledRemotes`/`pushedBranches`,
+  `syncFailure` throw-injection) for action tests — plain `var` (not
+  `private(set)`, which is file-scoped and would not compile in `Sync.swift`).
 - No GH / editor / Copilot / theme / notification code anywhere (scope bans).

@@ -340,19 +340,14 @@ public struct GitDesktopCommands: Commands {
     }
 
     private func newBranch() {
-        guard let id = selectedRepositoryID else { return }
-        store.showPopup(.createBranch(repositoryID: id, initialName: nil, targetCommitSHA: nil))
+        // Task 14: single code path with any future `.createBranch`
+        // notification posters (context menus) — see MenuActionRouter.
+        store.menuCreateBranch()
     }
 
     private func discardAll() {
-        guard let repo = store.selectedRepository,
-              let state = store.repositoryStates[repo.hash]
-        else { return }
-        store.showPopup(.confirmDiscardChanges(
-            repositoryID: repo.id,
-            fileIDs: state.workingDirectory.files.map(\.id),
-            showDiscardChangesSetting: true,
-            discardingAllChanges: true))
+        // Task 14: same confirm as the `.discardAllChanges` notification path.
+        store.menuDiscardAll()
     }
 
     private func resizeActivePane(by delta: Double) {

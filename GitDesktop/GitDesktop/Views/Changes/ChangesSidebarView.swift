@@ -111,6 +111,18 @@ public struct ChangesSidebarView: View {
             }
         }
         .animation(.easeInOut(duration: 0.5), value: changes.mostRecentLocalCommit?.sha)
+        // Task 14: Select All gap. `Commands` overrides Edit → Select All with
+        // a `GitDesktopMenuAction.post(.selectAll)` notification (mirroring the
+        // reference `select-all` custom event), which breaks the native
+        // list-view responder-chain select-all. The diff restores its half in
+        // `TextDiffView`; this restores the file list's: select visible files.
+        // Like the reference dispatch (and `TextDiffView`), this is
+        // focus-unaware — scoping menu routing to the focused view is Task 16
+        // polish if it proves annoying (see TODO.md).
+        .onReceive(NotificationCenter.default.publisher(for: .gitDesktopMenuAction)) { note in
+            guard GitDesktopMenuAction.from(note) == .selectAll else { return }
+            changes.selectedFileIDs = Set(changes.visibleFiles.map(\.id))
+        }
     }
 
     // MARK: Filter

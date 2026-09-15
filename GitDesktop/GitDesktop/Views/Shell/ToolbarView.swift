@@ -230,71 +230,46 @@ struct ToolbarView: View {
     }
 
     private func pushPullPrimaryAction() {
+        // Task 13+14 union: progress spinner (`syncTitle`) + single code path
+        // with the Repository menu via `MenuActionRouter` (`menuPush`/
+        // `menuPull`/`menuFetch`). Publish + force-push keep Task 13's
+        // detailed handling (set-upstream push, confirm gate); fetch/pull/
+        // push run through the router so menu and button share one path.
         guard syncTitle == nil else { return }
-        guard let repository, let currentState = state else {
+        guard let repository else {
             store.closeFoldout()
             return
         }
-        switch pushPull.action {
-        case .publishRepository:
-            // No remote yet — open Repository Settings so the user can add one.
-            store.closeFoldout()
-            store.showPopup(.repositorySettings(repositoryID: repository.id, initialTab: nil))
-        case .publishBranch:
-            guard let remote = currentState.remote ?? currentState.remotes.first,
-                  let branchName = currentBranchName
-            else {
-                store.closeFoldout()
-                store.showPopup(.repositorySettings(repositoryID: repository.id, initialTab: nil))
-                return
-            }
+        switch toolbarSyncRequest(for: pushPull) {
+        case .push:
             runSync(title: "Pushing…") {
-                await shellPush(
-                    store: store, repository: repository, remote: remote,
-                    localBranch: branchName, remoteBranch: nil, forceWithLease: false)
+                await store.menuPush()
             }
-        case .fetch(let remoteName):
-            guard let remote = resolveRemote(named: remoteName) else {
-                store.closeFoldout()
-                return
-            }
-            runSync(title: "Fetching…") {
-                let ok = await shellFetch(store: store, repository: repository, remote: remote)
-                if ok { markFetched(repository) }
-            }
-        case .pull(let remoteName, _):
-            guard let remote = resolveRemote(named: remoteName) else {
-                store.closeFoldout()
-                return
-            }
+        case .pull:
             runSync(title: "Pulling…") {
-                let ok = await shellPull(store: store, repository: repository, remote: remote)
-                if ok { markFetched(repository) }
+                await store.menuPull()
+                markFetched(repository)
             }
-        case .push(let remoteName):
-            guard let remote = resolveRemote(named: remoteName),
-                  let branchName = currentBranchName
-            else {
+        case .fetch:
+            runSync(title: "Fetching…") {
+                await store.menuFetch()
+                markFetched(repository)
+            }
+        case .forcePush:
+            // Task 13 force-push gate (router only opens the confirm;
+            // execution stays with Tasks 6–7).
+            guard let branchName = currentBranchName else {
                 store.closeFoldout()
                 return
             }
-            // Push to the tracked upstream when present, else set-upstream.
-            let remoteBranch = currentUpstreamWithoutRemote
-            runSync(title: "Pushing…") {
-                await shellPush(
-                    store: store, repository: repository, remote: remote,
-                    localBranch: branchName, remoteBranch: remoteBranch,
-                    forceWithLease: false)
-            }
-        case .forcePush(let remoteName):
-            guard let remote = resolveRemote(named: remoteName),
-                  let branchName = currentBranchName
-            else {
+            let remoteName: String?
+            if case .forcePush(let name) = pushPull.action { remoteName = name }
+            else { remoteName = nil }
+            guard let name = remoteName,
+                  let remote = resolveRemote(named: name) else {
                 store.closeFoldout()
                 return
             }
-            // Gate on the force-push confirm (mirrors the reference
-            // `confirmOrForcePush` + `Defaults.confirmForcePush`).
             if Defaults.bool(Defaults.confirmForcePush, default: true) {
                 store.closeFoldout()
                 let upstream = currentUpstream ?? "\(remote.name)/\(branchName)"
@@ -308,7 +283,30 @@ struct ToolbarView: View {
                         forceWithLease: true)
                 }
             }
-        case .progress, .detached:
+        case .publishSetup:
+            // Preserve Task 13 publish distinction (repo vs branch).
+            switch pushPull.action {
+            case .publishRepository:
+                store.closeFoldout()
+                store.showPopup(.repositorySettings(repositoryID: repository.id, initialTab: nil))
+            case .publishBranch:
+                guard let currentState = state,
+                      let remote = currentState.remote ?? currentState.remotes.first,
+                      let branchName = currentBranchName
+                else {
+                    store.closeFoldout()
+                    store.showPopup(.repositorySettings(repositoryID: repository.id, initialTab: nil))
+                    return
+                }
+                runSync(title: "Pushing…") {
+                    await shellPush(
+                        store: store, repository: repository, remote: remote,
+                        localBranch: branchName, remoteBranch: nil, forceWithLease: false)
+                }
+            default:
+                store.menuPublishSetup()
+            }
+        case .none:
             break
         }
     }
