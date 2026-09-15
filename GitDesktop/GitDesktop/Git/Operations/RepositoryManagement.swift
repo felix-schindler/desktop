@@ -342,12 +342,16 @@ public enum RepositoryManagement {
 
     /// Clone with progress replay (buffer-mode: initial event first, then
     /// replay final stderr through `CloneProgressParser`).
+    /// Cancellation-aware (Task 15): cancelling the caller's `Task`
+    /// terminates the underlying `git clone` process via
+    /// `GitProcess.runCancellable` and throws `CancellationError`.
     public static func clone(
         url: String,
         destinationPath: String,
         branch: String? = nil,
         progress: (@Sendable (AppProgress) -> Void)? = nil
     ) async throws {
+        try Task.checkCancellation()
         if let transportError = cloneTransportError(url: url) {
             throw GitError(kind: nil, args: ["clone", url], stdout: "", stderr: transportError, exitCode: 128)
         }
@@ -366,7 +370,7 @@ public enum RepositoryManagement {
         progress?(parser.initialProgress)
         var env = envForRemoteOperation(url)
         env["GIT_CLONE_PROTECTION_ACTIVE"] = "false"
-        let result = try await GitProcess.run(args, workingDirectory: nil, environment: env)
+        let result = try await GitProcess.runCancellable(args, workingDirectory: nil, environment: env)
         if let progress {
             for line in progressLines(from: result.stderrString) {
                 if let event = parser.parse(line: line) { progress(event) }

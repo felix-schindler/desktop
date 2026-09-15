@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-// MARK: - UpdateService (Task 10)
+// MARK: - UpdateService (Tasks 10, 15)
 // Sparkle-equivalent updater: states + banner/showcase + InstallingUpdate.
 //
 // Sparkle decision: NO Sparkle binary is bundled. Adding the Sparkle SPM
@@ -13,7 +13,12 @@ import Foundation
 // installedPendingRestart. Dropping in the real Sparkle `SPUUpdater` later
 // only means forwarding these states — the banner, showcase, InstallingUpdate
 // quit-guard, and menu wiring stay identical. Feed parsing + version compare
-// are pure functions covered by `Task10Tests`.
+// are pure functions covered by `Task10Tests`/`Task15Tests`.
+//
+// Task 15 wiring: the feed URL resolves from the standard Sparkle
+// `SUFeedURL` Info.plist key (release distribution sets it to the real
+// appcast; dev builds have no key so checks stay local), HTTP errors map to
+// `UpdateError`, and `simulatedRemoteVersion` remains the UI-test seam.
 
 public enum UpdateState: Sendable, Equatable {
     case upToDate
@@ -54,6 +59,30 @@ public func isVersion(_ candidate: String, newerThan current: String) -> Bool {
     return false
 }
 
+/// Decode appcast `Data` and return the newest enclosed version newer than
+/// `current`. Pure + tested (`Task15Tests`).
+public func newestVersionInAppcast(data: Data, current: String) -> String? {
+    guard let xml = String(data: data, encoding: .utf8) else { return nil }
+    return newestVersionInAppcast(xml, current: current)
+}
+
+public enum UpdateError: Error, Sendable, Equatable {
+    case feedUnavailable(statusCode: Int)
+    case unreadableFeed
+}
+
+/// Validate a feed download: non-2xx HTTP throws `.feedUnavailable`,
+/// undecodable bodies throw `.unreadableFeed`. Pure + tested.
+public func appcastXML(data: Data, response: URLResponse) throws -> String {
+    if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+        throw UpdateError.feedUnavailable(statusCode: http.statusCode)
+    }
+    guard let xml = String(data: data, encoding: .utf8) else {
+        throw UpdateError.unreadableFeed
+    }
+    return xml
+}
+
 /// Extract the newest `<enclosure sparkle:version="…">` newer than `current`
 /// from a Sparkle appcast. Pure string scan (no XML parser dependency).
 public func newestVersionInAppcast(_ xml: String, current: String) -> String? {
@@ -72,6 +101,18 @@ public func newestVersionInAppcast(_ xml: String, current: String) -> String? {
     return best
 }
 
+/// Resolve the Sparkle `SUFeedURL` key from an Info.plist dictionary.
+/// Pure (takes the dictionary) so the lookup is unit-testable without
+/// a bundle. Only http(s) URLs are accepted.
+public func feedURLFromInfoDictionary(_ info: [String: Any]) -> URL? {
+    guard let raw = info["SUFeedURL"] as? String,
+          let url = URL(string: raw),
+          let scheme = url.scheme?.lowercased(),
+          scheme == "http" || scheme == "https"
+    else { return nil }
+    return url
+}
+
 @MainActor
 public final class UpdateService: ObservableObject {
     @Published public private(set) var state: UpdateState = .upToDate
@@ -79,7 +120,9 @@ public final class UpdateService: ObservableObject {
     @Published public private(set) var lastCheckDate: Date?
     @Published public private(set) var lastError: String?
 
-    /// Appcast feed URL (`SUFeedURL`). Nil in dev builds — checks stay local.
+    /// Appcast feed URL. Resolves from the standard Sparkle `SUFeedURL`
+    /// Info.plist key (release distribution sets it to the real appcast);
+    /// nil in dev builds — checks stay local.
     public var feedURL: URL?
     /// Test seam: bypasses networking and reports this version as remote.
     public var simulatedRemoteVersion: String?
@@ -87,7 +130,8 @@ public final class UpdateService: ObservableObject {
     private var downloadTask: Task<Void, Never>?
 
     public init(feedURL: URL? = nil) {
-        self.feedURL = feedURL
+        self.feedURL = feedURL ?? feedURLFromInfoDictionary(
+            Bundle.main.infoDictionary ?? [:])
     }
 
     /// Whether quit is blocked (port of `InstallingUpdate` semantics).
@@ -160,8 +204,8 @@ public final class UpdateService: ObservableObject {
             return isVersion(simulated, newerThan: currentVersion) ? simulated : nil
         }
         guard let feedURL else { return nil }
-        let (data, _) = try await URLSession.shared.data(from: feedURL)
-        guard let xml = String(data: data, encoding: .utf8) else { return nil }
+        let (data, response) = try await URLSession.shared.data(from: feedURL)
+        let xml = try appcastXML(data: data, response: response)
         return newestVersionInAppcast(xml, current: currentVersion)
     }
 

@@ -213,7 +213,7 @@ public struct CloneRepositoryDialog: View {
     @State private var isWorking = false
     @State private var progressValue: Double = 0
     @State private var progressTitle: String = "Cloning…"
-    @State private var cloneTask: Task<Void, Never>?
+    @State private var cloneJobID: UUID?
 
     public init(store: AppStore, popup: Popup, initialURL: String?) {
         self.store = store
@@ -275,8 +275,12 @@ public struct CloneRepositoryDialog: View {
                 Spacer()
                 Button(isWorking ? "Cancel Clone" : "Cancel") {
                     if isWorking {
-                        cloneTask?.cancel()
-                        isWorking = false
+                        // Task 15: abort via the clone dispatcher — this kills
+                        // the in-flight `git clone` process (the old
+                        // `cloneTask?.cancel()` only dropped the local task).
+                        // UI resets when `onCompletion` delivers the
+                        // `CancellationError`.
+                        if let cloneJobID { CloneDispatcher.shared.cancel(id: cloneJobID) }
                     } else {
                         store.closePopup(popup)
                     }
@@ -309,34 +313,39 @@ public struct CloneRepositoryDialog: View {
         isWorking = true
         errorMessage = nil
         progressValue = 0
-        let cloning = CloningRepository(path: destination, url: remoteURL)
-        cloneTask = Task { @MainActor in
-            do {
-                try await RepositoryManagement.clone(
-                    url: remoteURL, destinationPath: destination,
-                    branch: branchName.isEmpty ? nil : branchName,
-                    progress: { event in
-                        Task { @MainActor in
-                            progressValue = event.value ?? 0
-                            progressTitle = event.title ?? "Cloning…"
-                        }
-                    })
-                if Task.isCancelled { return }
-                let repo = Repository(path: destination, id: store.nextRepositoryID())
-                store.addRepositories([repo])
-                store.persistRepositories()
-                _ = cloning
-                store.closePopup(popup)
-            } catch let error as GitError {
-                if Task.isCancelled { return }
-                errorMessage = error.displayMessage
-                isWorking = false
-            } catch {
-                if Task.isCancelled { return }
-                errorMessage = error.localizedDescription
-                isWorking = false
-            }
-        }
+        // Task 15: clones run through the shared dispatcher so Cancel (here
+        // and in `CloningRepositoryView`) aborts the real `git clone`
+        // process instead of just dropping the local task.
+        cloneJobID = CloneDispatcher.shared.start(
+            url: remoteURL,
+            destinationPath: destination,
+            branch: branchName.isEmpty ? nil : branchName,
+            onProgress: { event in
+                Task { @MainActor in
+                    progressValue = event.value
+                    progressTitle = event.title ?? "Cloning…"
+                }
+            },
+            onCompletion: { result in
+                switch result {
+                case .success:
+                    let repo = Repository(path: destination, id: store.nextRepositoryID())
+                    store.addRepositories([repo])
+                    store.persistRepositories()
+                    store.closePopup(popup)
+                case .failure(let error):
+                    if error is CancellationError {
+                        // User-cancelled: the dispatcher already killed git
+                        // and removed the partial destination. Back to idle.
+                    } else if let gitError = error as? GitError {
+                        errorMessage = gitError.displayMessage
+                    } else {
+                        errorMessage = error.localizedDescription
+                    }
+                    isWorking = false
+                }
+                cloneJobID = nil
+            })
     }
 }
 

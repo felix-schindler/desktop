@@ -139,8 +139,10 @@ struct CloningRepositoryView: View {
                 .progressViewStyle(.linear)
                 .frame(width: 280)
             Button("Cancel") {
-                // TODO(Task 9): cancel the in-flight clone via the clone
-                // dispatcher and drop the CloningRepository selection.
+                // Task 15: abort the in-flight clone via the dispatcher —
+                // this kills the `git clone` process and drops the partial
+                // destination (previously this only cleared the banner).
+                CloneDispatcher.shared.cancel(destinationPath: cloning.path)
                 store.clearBanner()
             }
             .keyboardShortcut(.cancelAction)
