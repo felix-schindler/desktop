@@ -292,6 +292,36 @@ public func toplevelForPath(_ path: String) async throws -> String? {
     }
 }
 
+/// Normalize a user-supplied repository path before `toplevelForPath` /
+/// `repositoryType` (port of `resolvedPath` in
+/// `ui/add-repository/add-existing-repository.tsx`:
+/// `Path.resolve('/', untildify(path))`, plus tolerance for pasted
+/// `file://` URLs and surrounding quotes from terminal copy-paste).
+/// Pure so it stays unit-testable without git installed.
+public func normalizeRepositoryPath(_ raw: String) -> String {
+    var path = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    // Strip surrounding quotes (e.g. pasted from a shell with spaces).
+    if path.count >= 2,
+       (path.hasPrefix("\"") && path.hasSuffix("\""))
+        || (path.hasPrefix("'") && path.hasSuffix("'")) {
+        path = String(path.dropFirst().dropLast())
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    // Accept pasted file URLs (`file:///Users/…`).
+    if path.hasPrefix("file://"),
+       let url = URL(string: path),
+       url.isFileURL {
+        return (url.path as NSString).standardizingPath
+    }
+    // Expand a leading `~` (untildify).
+    var expanded = (path as NSString).expandingTildeInPath
+    // Resolve relative paths against `/` (Node `Path.resolve('/', p)`).
+    if !(expanded as NSString).isAbsolutePath {
+        expanded = ("/" as NSString).appendingPathComponent(expanded)
+    }
+    return (expanded as NSString).standardizingPath
+}
+
 // MARK: - Live operations
 
 /// Default branch from global `init.defaultBranch` (port of

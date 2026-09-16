@@ -52,7 +52,8 @@ public extension AppStore {
     /// Returns the repository that was selected (or matched).
     @discardableResult
     func addLocalRepository(at path: String) async throws -> Repository {
-        let toplevel = try await toplevelForPath(path) ?? path
+        let normalized = normalizeRepositoryPath(path)
+        let toplevel = try await toplevelForPath(normalized) ?? normalized
         if let existing = RepositoryPersistence.matchExisting(repositories: repositories, toplevel: toplevel) {
             selectRepository(existing)
             return existing
@@ -75,7 +76,8 @@ public extension AppStore {
 
     /// Relocate a missing repository to a new path.
     func relocateRepository(_ repository: Repository, to newPath: String) async throws -> Repository {
-        let toplevel = try await toplevelForPath(newPath) ?? newPath
+        let normalized = normalizeRepositoryPath(newPath)
+        let toplevel = try await toplevelForPath(normalized) ?? normalized
         guard let index = repositories.firstIndex(where: { $0.id == repository.id }) else {
             return repository
         }

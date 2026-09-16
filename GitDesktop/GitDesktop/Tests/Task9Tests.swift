@@ -30,6 +30,7 @@ public enum Task9Tests {
         testCLI(&failures)
         testDeepLink(&failures)
         testDropResolution(&failures)
+        testNormalizeRepositoryPath(&failures)
         testSettingsDraft(&failures)
         if failures.isEmpty {
             print("Task9Tests: all tests passed")
@@ -171,6 +172,19 @@ public enum Task9Tests {
         check(actions[0] == .selectExisting(repositoryID: 7), "existing \(actions[0])", test: test, failures: &failures)
         check(actions[1] == .ignoreNotDirectory, "file ignored", test: test, failures: &failures)
         check(actions[2] == .add(path: "/repos/new"), "add", test: test, failures: &failures)
+    }
+
+    static func testNormalizeRepositoryPath(_ failures: inout [Failure]) {
+        let test = "normalize-repo-path"
+        check(normalizeRepositoryPath("/a/b/") == "/a/b", "trailing slash", test: test, failures: &failures)
+        check(normalizeRepositoryPath("  /a/b  ") == "/a/b", "trims whitespace", test: test, failures: &failures)
+        check(normalizeRepositoryPath("\"/a/b c\"") == "/a/b c", "double quotes", test: test, failures: &failures)
+        check(normalizeRepositoryPath("'/a/b c'") == "/a/b c", "single quotes", test: test, failures: &failures)
+        check(normalizeRepositoryPath("file:///a/b") == "/a/b", "file URL", test: test, failures: &failures)
+        check(normalizeRepositoryPath("Code/repo") == "/Code/repo", "relative resolves against /", test: test, failures: &failures)
+        let home = NSHomeDirectory()
+        check(normalizeRepositoryPath("~/Code/repo") == (home as NSString).appendingPathComponent("Code/repo"), "tilde expands \(normalizeRepositoryPath("~/Code/repo"))", test: test, failures: &failures)
+        check(normalizeRepositoryPath("/a/./b") == "/a/b", "standardizes dot", test: test, failures: &failures)
     }
 
     static func testSettingsDraft(_ failures: inout [Failure]) {
