@@ -9,12 +9,42 @@ public extension AppStore {
     // MARK: Persistence
 
     func persistRepositories() {
-        RepositoryPersistence.save(repositories, selectedID: selectedRepository?.id)
+        let selectedID = selectedRepository?.id
+        do {
+            try RepositoriesDatabase.save(repositories, in: RepositoriesDatabase.sharedContext)
+            // Selection stays in UserDefaults by design (the reference keeps
+            // selection in local storage, not IndexedDB).
+            if let selectedID {
+                UserDefaults.standard.set(selectedID, forKey: Defaults.lastSelectedRepositoryID)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Defaults.lastSelectedRepositoryID)
+            }
+            Defaults.setRecentIDs(repositories.prefix(3).map(\.id))
+        } catch {
+            NSLog("persistRepositories: SwiftData save failed, falling back to UserDefaults: \(error)")
+            RepositoryPersistence.save(repositories, selectedID: selectedID)
+        }
     }
 
     func restorePersistedRepositories() {
-        let (repos, selectedID) = RepositoryPersistence.load()
-        guard !repos.isEmpty else { return }
+        let context = RepositoriesDatabase.sharedContext
+        // One-time import of the v1 UserDefaults blob (no-op when SwiftData
+        // already holds rows or no blob exists).
+        _ = try? RepositoriesDatabase.migrateIfNeeded(in: context)
+        let repos: [Repository]
+        let selectedID: Int?
+        if let stored = try? RepositoriesDatabase.fetchRepositories(in: context),
+           !stored.isEmpty {
+            repos = stored
+            selectedID = UserDefaults.standard.object(forKey: Defaults.lastSelectedRepositoryID) as? Int
+        } else {
+            // Fallback: legacy blob (pre-migration installs, or SwiftData
+            // unavailable after a failed save that wrote the blob instead).
+            let legacy = RepositoryPersistence.load()
+            guard !legacy.repositories.isEmpty else { return }
+            repos = legacy.repositories
+            selectedID = legacy.selectedID
+        }
         // Drop entries whose paths vanished → mark missing (port of the
         // reference startup missing-repo scan).
         let checked = repos.map { repo -> Repository in
@@ -76,18 +106,12 @@ public extension AppStore {
 
     /// Relocate a missing repository to a new path.
     func relocateRepository(_ repository: Repository, to newPath: String) async throws -> Repository {
-        let normalized = normalizeRepositoryPath(newPath)
-        let toplevel = try await toplevelForPath(normalized) ?? normalized
         guard let index = repositories.firstIndex(where: { $0.id == repository.id }) else {
             return repository
         }
-        var updated = repositories[index]
-        // Repository.path is immutable; rebuild preserving id/alias/tutorial flag.
-        updated = Repository(
-            path: toplevel, id: updated.id, missing: false,
-            alias: updated.alias,
-            workflowPreferences: updated.workflowPreferences,
-            isTutorialRepository: updated.isTutorialRepository)
+        // Identity (gitDir/main worktree) is re-resolved from disk; invalid
+        // targets throw and leave the entry untouched.
+        let updated = try await relocatedRepository(repositories[index], to: newPath)
         var merged = repositories
         merged[index] = updated
         setRepositories(merged)
@@ -97,7 +121,11 @@ public extension AppStore {
         // subsequent `selectRepository` creates a fresh Live service.
         gitStores.removeValue(forKey: repository.hash)
         refreshingRepositoryHashes.remove(repository.hash)
-        selectRepository(updated)
+        if updated.missing {
+            selectMissingRepository(updated)
+        } else {
+            selectRepository(updated)
+        }
         persistRepositories()
         return updated
     }

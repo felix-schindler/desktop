@@ -58,9 +58,15 @@ None open.
      `Info.plist`; needs a `pbxproj`-adjacent edit).
   2. Verify with `open 'x-gitdesktop-client://openrepo/<url>'`: known repo
      gets selected, unknown repo opens the clone dialog.
-- **Persistence still UserDefaults JSON**
-  (`Persistence/RepositoryPersistence.swift:4-8,36-60`). GRDB vs SwiftData
-  decision never made — migrate `save`/`load`/`nextID`/`matchExisting` then.
+- **Persistence migrated to SwiftData.** Repository list lives in
+  `Persistence/RepositoryRecord.swift` + `Persistence/RepositoriesDatabase.swift`
+  (unique `repositoryID` + `path`, full fields incl. `missing`/`gitDir`/
+  `mainWorktreePath`/`workflowPreferences`); selection + prefs stay in
+  `UserDefaults`. One-time import from the v1 `persisted-repositories` JSON
+  blob (`migrateIfNeeded`), legacy `RepositoryPersistence.save`/`load` kept as
+  fallback + `Task9Tests` coverage, new coverage in `PersistenceTests`.
+  GitHub tables (`gitHubRepositories`/`owners`/`protectedBranches`) never
+  ported (out of scope).
 
 ## Polish / small deviations
 

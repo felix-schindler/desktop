@@ -292,13 +292,46 @@ nonisolated public func toplevelForPath(_ path: String) async throws -> String? 
     }
 }
 
+/// Resolve a relocated repository's new identity from disk (port of the
+/// `getRepositoryType` switch in `AppStore._relocateRepository`).
+/// A move invalidates the recorded `gitDir`/`mainWorktreePath`, so both are
+/// re-resolved from the new location rather than preserved: a stale `gitDir`
+/// points at the old disk location, and dropping it loses worktree linkage
+/// (`resolvedGitDir` falls back to `<new>/.git`, which linked worktrees lack).
+/// Unsafe locations keep the picked path with cleared metadata and
+/// `missing: true` (git refuses to run there); bare/non-repo targets throw so
+/// the Locate sheet reports them instead of accepting a bogus path.
+nonisolated public func relocatedRepository(_ repository: Repository, to newPath: String) async throws -> Repository {
+    let normalized = normalizeRepositoryPath(newPath)
+    switch try await repositoryType(at: normalized) {
+    case .regular(let top, let gitDir):
+        return Repository(
+            path: top, id: repository.id, missing: false,
+            alias: repository.alias,
+            workflowPreferences: repository.workflowPreferences,
+            isTutorialRepository: repository.isTutorialRepository,
+            gitDir: gitDir,
+            mainWorktreePath: await WorktreeOperations.findMainWorktreePath(top))
+    case .unsafe:
+        return Repository(
+            path: normalized, id: repository.id, missing: true,
+            alias: repository.alias,
+            workflowPreferences: repository.workflowPreferences,
+            isTutorialRepository: repository.isTutorialRepository)
+    case .bare:
+        throw GitError(kind: nil, args: ["add", normalized], stdout: "", stderr: "The path is a bare repository, which cannot be opened.", exitCode: 128)
+    case .missing:
+        throw GitError(kind: .notAGitRepository, args: ["add", normalized], stdout: "", stderr: "The path is not a git repository.", exitCode: 128)
+    }
+}
+
 /// Normalize a user-supplied repository path before `toplevelForPath` /
 /// `repositoryType` (port of `resolvedPath` in
 /// `ui/add-repository/add-existing-repository.tsx`:
 /// `Path.resolve('/', untildify(path))`, plus tolerance for pasted
 /// `file://` URLs and surrounding quotes from terminal copy-paste).
 /// Pure so it stays unit-testable without git installed.
-public func normalizeRepositoryPath(_ raw: String) -> String {
+nonisolated public func normalizeRepositoryPath(_ raw: String) -> String {
     var path = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     // Strip surrounding quotes (e.g. pasted from a shell with spaces).
     if path.count >= 2,

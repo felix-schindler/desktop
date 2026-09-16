@@ -6,10 +6,12 @@ import SwiftUI
 // MARK: - CrashReporter (Task 10)
 // Crash boundary + `AppError` view + opt-in POST per PLAN Task 10.
 //
-// Persistence decision (PLAN "Decide GRDB vs SwiftData here"): NEITHER.
-// The app persists only small UserDefaults state (repos, widths, prompts,
-// settings) + git on disk. No relational queries, no migrations, no sync —
-// adding GRDB/SwiftData would be pure overhead. Crash reports are flat files
+// Persistence decision (PLAN "Decide GRDB vs SwiftData here"): SwiftData for
+// the repository list (`Persistence/RepositoryRecord.swift` +
+// `Persistence/RepositoriesDatabase.swift`, migrated once from the v1
+// UserDefaults JSON blob), UserDefaults for small prefs/selection state,
+// flat files here for crash reports. No GRDB (third-party dep, banned) and no
+// GitHub tables (out of scope). Crash reports are flat files
 // in `~/Library/Logs/GitDesktop` uploaded once (opt-in) then deleted.
 // Revisit only if a relational store (e.g. commit graph cache) is needed.
 
