@@ -46,6 +46,11 @@ final class HarnessSuiteTests: XCTestCase {
         XCTAssertEqual(Task9Tests.runAll(), 0)
     }
 
+    @MainActor func testPersistence() async {
+        let failures = await PersistenceTests.runAll()
+        XCTAssertEqual(failures, 0)
+    }
+
     func testTask10() {
         XCTAssertEqual(Task10Tests.runAll(), 0)
     }

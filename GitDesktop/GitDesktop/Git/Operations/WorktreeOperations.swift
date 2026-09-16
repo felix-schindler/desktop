@@ -66,6 +66,13 @@ public enum WorktreeOperations {
                 || worktreeDescription($0).lowercased().contains(q)
         }
     }
+
+    /// Ask a worktree on disk which worktree is the main one, or nil when git
+    /// can't tell us. Port of `AppStore.findMainWorktreePath` (`app-store.ts`).
+    nonisolated public static func findMainWorktreePath(_ path: String) async -> String? {
+        (try? await WorktreeLiveOperations.listWorktrees(repositoryPath: path))?
+            .first(where: { $0.type == .main })?.path
+    }
 }
 
 public enum WorktreeLiveOperations {
