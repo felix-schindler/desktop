@@ -42,6 +42,7 @@ public enum GitStoreTests {
         await testRefreshPopulatesState(&failures)
         await testRemoteHEADLive(&failures)
         await testRefreshFailurePostsError(&failures)
+        await testRefreshSuccessClearsErrors(&failures)
         await testMissingRouting(&failures)
         if failures.isEmpty {
             print("GitStoreTests: all tests passed")
@@ -406,6 +407,63 @@ public enum GitStoreTests {
             check(false, "existing-path failure keeps selection, got \(String(describing: app.selection))",
                   test: test, failures: &failures)
         }
+    }
+
+    static func testRefreshSuccessClearsErrors(_ failures: inout [Failure]) async {
+        let test = "refresh-clears-errors"
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GitStoreTests-clear-\(UUID().uuidString)").path
+        do {
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        } catch {
+            check(false, "temp dir failed: \(error)", test: test, failures: &failures)
+            return
+        }
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let repo = Repository(path: dir, id: 905)
+        let app = AppStore()
+        app.setRepositories([repo])
+        let okStatus = RepositoryStatus(
+            headers: StatusParser.StatusHeaders(),
+            workingDirectory: .fromFiles([]))
+        let okMock = MockGitService(
+            repositoryPath: dir, stubStatus: okStatus, stubCommits: [],
+            stubBranches: [], stubRemotes: [])
+        app.makeService = { _ in okMock }
+        app.selectRepository(repo)
+        var spins = 0
+        while app.isRefreshing(repo) && spins < 50 {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+            spins += 1
+        }
+        // A stale error below a live confirm: success must drop the error
+        // but keep the user-flow dialog (and re-point `currentPopup` at it).
+        app.showPopup(.error(message: "stale transient failure"))
+        app.showPopup(.about)
+        await app.refreshRepository(repo)
+        let errors = app.allPopups.filter {
+            if case .error = $0 { return true }
+            return false
+        }
+        check(errors.isEmpty, "success clears .error (got \(app.allPopups))",
+              test: test, failures: &failures)
+        check(app.currentPopup == .about, "non-error survives, got \(String(describing: app.currentPopup))",
+              test: test, failures: &failures)
+        // A failed refresh keeps (and appends) errors — only success clears.
+        let boom = GitError(
+            kind: .hostDown, args: ["fetch"], stdout: "",
+            stderr: "fatal: unable to access 'x': Failed to connect: Host is down",
+            exitCode: 128)
+        app.makeService = { _ in FailingGitService(repositoryPath: dir, failure: boom) }
+        app.gitStores.removeValue(forKey: repo.hash)
+        app.showPopup(.error(message: "stale transient failure"))
+        await app.refreshRepository(repo)
+        let kept = app.allPopups.filter {
+            if case .error = $0 { return true }
+            return false
+        }
+        check(kept.count == 2, "failure keeps errors (got \(app.allPopups))",
+              test: test, failures: &failures)
     }
 
     static func testMissingRouting(_ failures: inout [Failure]) async {

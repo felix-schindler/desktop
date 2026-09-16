@@ -15,9 +15,9 @@ The test target also proves `project.pbxproj` hand-edits are feasible again
 
 ## Correctness gaps
 
-- **Stale `.error` sheets never auto-clear.** `showPopup` always appends
-  (`App/AppState.swift:172-190`); successful refresh only updates state
-  (`App/AppStore+GitPipeline.swift:66-82`). Decide whether success clears errors.
+None open — the last two landed: banner undo now resets `--hard` to the
+recorded pre-op tip (`shellUndoBanner`, `MultiCommitUndoState`), and a
+successful refresh clears stale `.error` sheets (`clearErrorPopups`).
 
 ## Release drive (Sparkle / deeplink / persistence)
 

@@ -76,6 +76,10 @@ public extension AppStore {
         do {
             let state = try await store.refresh(historyLimit: historyLimit)
             updateRepositoryState(state)
+            // The refresh just proved git health: drop stale `.error`
+            // sheets (a resolved transient failure must not wedge the
+            // dialog stack; see `clearErrorPopups`).
+            clearErrorPopups()
         } catch {
             routeRefreshFailure(error, for: repository)
         }

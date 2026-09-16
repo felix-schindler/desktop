@@ -215,6 +215,21 @@ public final class AppStore: ObservableObject {
         currentPopup = nil
     }
 
+    /// Drop stale `.error` sheets. Called after a successful refresh:
+    /// errors sit atop the dialog stack, so a resolved transient failure
+    /// would otherwise wedge every dialog until manually dismissed (and
+    /// every failing refresh appends another one). Only errors clear —
+    /// confirms and bespoke dialogs belong to user flows, not git health.
+    /// Errors carry no repo linkage, so this clears all of them; failures
+    /// never clear, and errors posted after the success refresh survive.
+    public func clearErrorPopups() {
+        allPopups.removeAll {
+            if case .error = $0 { return true }
+            return false
+        }
+        currentPopup = allPopups.last
+    }
+
     private func enforceStackLimit() {
         while allPopups.count > Self.popupStackLimit {
             if let index = allPopups.firstIndex(where: {
