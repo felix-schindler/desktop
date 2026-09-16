@@ -76,15 +76,34 @@ nonisolated public func resolveTip(
     }
 }
 
-/// Heuristic default branch: local `main`, else local `master`, else the
-/// first local branch. The reference resolves `origin/HEAD` + config; that
-/// needs a `symbolic-ref` call Tasks 12–14 can add — this keeps Task 11's
-/// refresh to four git calls while giving branch lists a stable default.
+/// Default branch: `origin/HEAD` (via `symbolic-ref`) first, falling back to
+/// the local heuristic (`main` → `master` → first sorted).
+/// Port of `findDefaultBranch` in `helpers/find-default-branch.ts`: when the
+/// caller supplies `remoteHEAD` (from `getRemoteHEAD`) or a
+/// `defaultBranchName` (from `init.defaultBranch`), local branches tracking
+/// the remote default win, then local name matches, then the remote branch
+/// itself. The old heuristic remains as the final fallback so repos without
+/// a resolvable remote HEAD keep a stable default.
 nonisolated public func findDefaultBranch(
     branches: [Branch],
-    defaultRemoteName: String? = nil
+    defaultRemoteName: String? = nil,
+    remoteHEAD: String? = nil,
+    defaultBranchName: String? = nil
 ) -> Branch? {
-    _ = defaultRemoteName
+    if remoteHEAD != nil || defaultBranchName != nil {
+        let name = remoteHEAD ?? defaultBranchName ?? "main"
+        let remoteRef: String? = {
+            guard let remoteHEAD, let defaultRemoteName else { return nil }
+            return "\(defaultRemoteName)/\(remoteHEAD)"
+        }()
+        if let hit = resolveDefaultBranch(
+            branches: branches,
+            defaultBranchName: name,
+            remoteRef: remoteRef
+        ) {
+            return hit
+        }
+    }
     let locals = branches.filter { $0.type == .local }
     if let main = locals.first(where: { $0.name == "main" }) { return main }
     if let master = locals.first(where: { $0.name == "master" }) { return master }
@@ -99,7 +118,9 @@ nonisolated public func buildRepositoryState(
     status: RepositoryStatus,
     branches: [Branch],
     remotes: [Remote],
-    commits: [Commit]
+    commits: [Commit],
+    remoteHEAD: String? = nil,
+    defaultBranchName: String? = nil
 ) -> RepositoryState {
     let tip = resolveTip(headers: status.headers, branches: branches)
     let defaultRemote = findDefaultRemote(remotes: remotes)
@@ -113,7 +134,11 @@ nonisolated public func buildRepositoryState(
     next.remote = current
     next.remotes = remotes
     next.recentCommits = commits
-    next.defaultBranch = findDefaultBranch(branches: branches, defaultRemoteName: defaultRemote?.name)
+    next.defaultBranch = findDefaultBranch(
+        branches: branches,
+        defaultRemoteName: defaultRemote?.name,
+        remoteHEAD: remoteHEAD,
+        defaultBranchName: defaultBranchName)
     return next
 }
 
@@ -195,18 +220,47 @@ public actor GitStore {
                 stderr: "Not a git repository: \(repository.path)",
                 exitCode: 128)
         }
-        // Sequential: four buffered calls, each fast on warm repos. Parallel
+        // Sequential: buffered calls, each fast on warm repos. Parallel
         // `async let` can land later with streaming `GitProcess` (Task 15).
         let branches = try await service.branches()
         let remotes = try await service.remotes()
         let commits = try await service.commits(range: nil, limit: historyLimit)
+        // Remote HEAD resolution (best-effort, never throws): missing symref
+        // or config just falls back to the local heuristic in
+        // `findDefaultBranch`. Mirrors `find-default-branch.ts`. Resolved
+        // through the `RemoteHEADResolving` seam so mocks stay hermetic
+        // (no git I/O); non-conforming services skip to the fallback.
+        let defaultRemote = findDefaultRemote(remotes: remotes)
+        var remoteHEAD: String?
+        var resolvedDefaultName: String
+        if let resolver = service as? any RemoteHEADResolving {
+            if let name = defaultRemote?.name {
+                remoteHEAD = await resolver.remoteHEAD(remote: name)
+            }
+            if let remoteHEAD {
+                resolvedDefaultName = remoteHEAD
+            } else {
+                resolvedDefaultName = await resolver.defaultBranchFallbackName()
+            }
+        } else {
+            // Non-conforming services (test failure injectors): real lookup
+            // is best-effort and never throws; refresh already failed earlier
+            // for these when status() throws.
+            if let name = defaultRemote?.name {
+                remoteHEAD = await getRemoteHEAD(repositoryPath: repository.path, remote: name)
+            }
+            let configDefault = await getDefaultBranch()
+            resolvedDefaultName = remoteHEAD ?? configDefault
+        }
         let next = buildRepositoryState(
             repository: repository,
             previous: cached,
             status: status,
             branches: branches,
             remotes: remotes,
-            commits: commits)
+            commits: commits,
+            remoteHEAD: remoteHEAD,
+            defaultBranchName: resolvedDefaultName)
         cached = next
         return next
     }

@@ -33,8 +33,11 @@ public enum GitStoreTests {
         testFindCurrentRemote(&failures)
         testResolveTip(&failures)
         testFindDefaultBranch(&failures)
+        testParseSymbolicRef(&failures)
+        await testRemoteHEADMockWiring(&failures)
         testBuildRepositoryState(&failures)
         await testRefreshPopulatesState(&failures)
+        await testRemoteHEADLive(&failures)
         await testRefreshFailurePostsError(&failures)
         await testMissingRouting(&failures)
         if failures.isEmpty {
@@ -115,8 +118,9 @@ public enum GitStoreTests {
 
     static func testFindDefaultBranch(_ failures: inout [Failure]) {
         let test = "default-branch"
-        func branch(_ name: String) -> Branch {
-            Branch(name: name, upstream: nil, tip: BranchTip(sha: "aaa"), type: .local, ref: "refs/heads/\(name)")
+        func branch(_ name: String, upstream: String? = nil, type: BranchType = .local) -> Branch {
+            let ref = type == .local ? "refs/heads/\(name)" : "refs/remotes/\(name)"
+            return Branch(name: name, upstream: upstream, tip: BranchTip(sha: "aaa"), type: type, ref: ref)
         }
         check(findDefaultBranch(branches: []) == nil, "empty → nil", test: test, failures: &failures)
         let found = findDefaultBranch(branches: [branch("feature"), branch("main"), branch("master")])
@@ -125,9 +129,77 @@ public enum GitStoreTests {
         check(master?.name == "master", "master fallback", test: test, failures: &failures)
         let solo = findDefaultBranch(branches: [branch("develop")])
         check(solo?.name == "develop", "solo fallback", test: test, failures: &failures)
-        // Remote branches never win.
+        // Remote branches never win without remote HEAD info.
         let remote = Branch(name: "origin/main", upstream: nil, tip: BranchTip(sha: "aaa"), type: .remote, ref: "refs/remotes/origin/main")
         check(findDefaultBranch(branches: [remote]) == nil, "remotes ignored", test: test, failures: &failures)
+        // Remote HEAD wins over the local `main` heuristic.
+        let viaRemote = findDefaultBranch(
+            branches: [branch("main"), branch("develop")],
+            defaultRemoteName: "origin",
+            remoteHEAD: "develop",
+            defaultBranchName: "develop")
+        check(viaRemote?.name == "develop", "remote HEAD wins, got \(viaRemote?.name ?? "nil")", test: test, failures: &failures)
+        // A local branch tracking the remote default wins over a same-named local.
+        let tracking = findDefaultBranch(
+            branches: [branch("main"), branch("feature", upstream: "origin/main")],
+            defaultRemoteName: "origin",
+            remoteHEAD: "main",
+            defaultBranchName: "main")
+        check(tracking?.name == "feature", "tracking hit wins, got \(tracking?.name ?? "nil")", test: test, failures: &failures)
+        // Remote-only fallback when no local matches.
+        let remoteOnly = findDefaultBranch(
+            branches: [branch("origin/main", type: .remote)],
+            defaultRemoteName: "origin",
+            remoteHEAD: "main",
+            defaultBranchName: "main")
+        check(remoteOnly?.name == "origin/main", "remote hit, got \(remoteOnly?.name ?? "nil")", test: test, failures: &failures)
+        // Config fallback without a remote HEAD.
+        let viaConfig = findDefaultBranch(
+            branches: [branch("main"), branch("trunk")],
+            defaultBranchName: "trunk")
+        check(viaConfig?.name == "trunk", "config name wins, got \(viaConfig?.name ?? "nil")", test: test, failures: &failures)
+        // No match → old heuristic preserved (never nil when locals exist).
+        let fallback = findDefaultBranch(
+            branches: [branch("develop")],
+            defaultRemoteName: "origin",
+            remoteHEAD: "main",
+            defaultBranchName: "main")
+        check(fallback?.name == "develop", "fallback to solo local, got \(fallback?.name ?? "nil")", test: test, failures: &failures)
+    }
+
+    static func testParseSymbolicRef(_ failures: inout [Failure]) {
+        let test = "symbolic-ref-parse"
+        check(RefsParser.parseSymbolicRef("refs/remotes/origin/main\n") == "refs/remotes/origin/main", "trims", test: test, failures: &failures)
+        check(RefsParser.parseSymbolicRef("") == nil, "empty → nil", test: test, failures: &failures)
+        check(RefsParser.parseSymbolicRef("  \n") == nil, "whitespace → nil", test: test, failures: &failures)
+    }
+
+    static func testRemoteHEADMockWiring(_ failures: inout [Failure]) async {
+        let test = "remote-head-mock"
+        func branch(_ name: String, upstream: String? = nil) -> Branch {
+            Branch(name: name, upstream: upstream, tip: BranchTip(sha: "aaa"), type: .local, ref: "refs/heads/\(name)")
+        }
+        let dir = "/tmp/mock-default-branch"
+        let headers = StatusParser.StatusHeaders(
+            currentBranch: "main", currentUpstreamBranch: "origin/main",
+            currentTip: "aaa", aheadBehind: nil)
+        let mock = MockGitService(repositoryPath: dir)
+        mock.stubStatus = RepositoryStatus(
+            headers: headers, workingDirectory: .fromFiles([]))
+        mock.stubBranches = [branch("main"), branch("develop")]
+        mock.stubRemotes = [Remote(name: "origin", url: "file:///tmp/origin.git")]
+        mock.stubCommits = []
+        mock.stubRemoteHEAD = "develop"
+        let repo = Repository(path: dir, id: 904)
+        let pipeline = GitStore(repository: repo, service: mock)
+        do {
+            let state = try await pipeline.refresh()
+            check(state.defaultBranch?.name == "develop",
+                  "mock remote HEAD wins, got \(state.defaultBranch?.name ?? "nil")",
+                  test: test, failures: &failures)
+        } catch {
+            check(false, "refresh threw: \(error)", test: test, failures: &failures)
+        }
     }
 
     static func testBuildRepositoryState(_ failures: inout [Failure]) {
@@ -235,6 +307,48 @@ public enum GitStoreTests {
                   "AppStore publishes history", test: test, failures: &failures)
         } catch {
             check(false, "refresh threw: \(error)", test: test, failures: &failures)
+        }
+    }
+
+    static func testRemoteHEADLive(_ failures: inout [Failure]) async {
+        let test = "remote-head-live"
+        let dir: String
+        do {
+            dir = try await makeFixtureRepo()
+        } catch {
+            check(false, "fixture setup failed: \(error)", test: test, failures: &failures)
+            return
+        }
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        // Local HEAD always resolves.
+        let head = await getSymbolicRef(repositoryPath: dir, ref: "HEAD")
+        check(head == "refs/heads/main", "HEAD symref, got \(head ?? "nil")", test: test, failures: &failures)
+        // No remotes → no remote HEAD (missing ref is nil, not an error).
+        let missing = await getRemoteHEAD(repositoryPath: dir, remote: "origin")
+        check(missing == nil, "no remote → nil, got \(missing ?? "nil")", test: test, failures: &failures)
+        // File:// remote round trip: push main, set origin/HEAD, resolve it.
+        do {
+            let bare = FileManager.default.temporaryDirectory
+                .appendingPathComponent("GitStoreTests-bare-\(UUID().uuidString)").path
+            try FileManager.default.createDirectory(atPath: bare, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(atPath: bare) }
+            func run(_ args: [String], cwd: String) async throws {
+                let result = try await GitProcess.run(args, workingDirectory: cwd)
+                guard result.exitCode == 0 else {
+                    throw GitError(
+                        kind: parseGitError(result.stderrString),
+                        args: args, stdout: result.stdoutString,
+                        stderr: result.stderrString, exitCode: result.exitCode)
+                }
+            }
+            try await run(["-c", "init.defaultBranch=main", "init", "--bare"], cwd: bare)
+            try await run(["remote", "add", "origin", bare], cwd: dir)
+            try await run(["push", "-u", "origin", "main"], cwd: dir)
+            try await run(["remote", "set-head", "origin", "-a"], cwd: dir)
+            let resolved = await getRemoteHEAD(repositoryPath: dir, remote: "origin")
+            check(resolved == "main", "origin/HEAD → main, got \(resolved ?? "nil")", test: test, failures: &failures)
+        } catch {
+            check(false, "remote fixture failed: \(error)", test: test, failures: &failures)
         }
     }
 

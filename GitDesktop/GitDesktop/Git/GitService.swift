@@ -365,6 +365,13 @@ public final class MockGitService: GitService, Sendable {
     nonisolated(unsafe) public var stubSubmodules: [SubmoduleEntry] = []
     nonisolated(unsafe) public var stubGitIgnore: String? = nil
     nonisolated(unsafe) public var stubUsingLFS: Bool = false
+    /// Remote HEAD name returned by `remoteHEAD(remote:)` (the
+    /// `RemoteHEADResolving` seam). Nil (default) falls back to the local
+    /// heuristic, keeping existing previews/tests hermetic with no git I/O.
+    nonisolated(unsafe) public var stubRemoteHEAD: String? = nil
+    /// Global-config fallback returned by `defaultBranchFallbackName()`.
+    /// Defaults to `"main"` (matching `getDefaultBranch()` with no config).
+    nonisolated(unsafe) public var stubDefaultBranchName: String = "main"
     nonisolated(unsafe) public private(set) var droppedStashSHAs: [String] = []
     nonisolated(unsafe) public private(set) var poppedStashSHAs: [String] = []
     nonisolated(unsafe) public private(set) var createdTags: [(name: String, sha: String)] = []
