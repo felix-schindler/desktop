@@ -5,19 +5,51 @@ PRs merged to `development`. Only the still-open items below are kept —
 each verified against code. Build/test gotchas and seams now live in
 `AGENTS.md` and are not repeated here.
 
-Since the last revision two items landed and are removed below:
+Since the last revision five more items landed and are removed below:
 `findDefaultBranch` now resolves `origin/HEAD` via `symbolic-ref`
 (`Git/Operations/DefaultBranchOperations.swift`, `Stores/GitStore.swift:87`),
-and there is a real unit-test target (`GitDesktopTests`, `xcodebuild test`).
+there is a real unit-test target (`GitDesktopTests`, `xcodebuild test`),
+partial staging commits only selected lines (`git apply --cached` via
+`PatchFormatter.swift` + `StageOperations.swift`),
+`Popup.multiCommitOperation` carries kind + initial branch
+(`Models/Popup.swift:119`), banner undo resets `--hard` to the recorded
+pre-op tip (`shellUndoBanner`, `MultiCommitUndoState`), and a successful
+refresh clears stale `.error` sheets (`clearErrorPopups`).
 The test target also proves `project.pbxproj` hand-edits are feasible again
 (`plutil -lint` + full `build`/`test` to verify) — so the release blockers in
 §2 are actionable now, not banned.
 
 ## Correctness gaps
 
-None open — the last two landed: banner undo now resets `--hard` to the
-recorded pre-op tip (`shellUndoBanner`, `MultiCommitUndoState`), and a
-successful refresh clears stale `.error` sheets (`clearErrorPopups`).
+- **Cherry-pick drop ignores the target branch.** The branch foldout lists
+  `allBranches` (`Views/Shell/FoldoutViews.swift:36-43`) and every row is a
+  drop target, but `dropCommits` (`:118-148`) cherry-picks onto current HEAD
+  with no checkout — dropping onto a non-checked-out branch mutates the
+  wrong branch while the banner names the drop target (`:141-143`). Either
+  check out the target first (reference flow) or restrict drops to the
+  current branch. (Undo itself is consistent: the record uses the branch
+  actually mutated.)
+- **Rebase warn-force-push fires unconditionally and loops.**
+  `beginRebase` (`Views/Shell/DialogMultiCommitAdapters.swift:69-75`) shows
+  the warning whenever the setting is true (the default), and confirming
+  without checking "don't show again" persists `true`
+  (`Views/Merge/MultiCommitWizard.swift:367-371`) — so the next Start click
+  warns again and the flow can never proceed without globally disabling the
+  warning. The reference only warns when the remote actually has commits
+  that would be overwritten (`warnAboutRemoteCommits`,
+  `electron/app/src/ui/dispatcher/dispatcher.ts:567-583`).
+- **Squash/reorder flows are unwired end to end.**
+  `rebaseInteractive` has no app callers
+  (`Views/Merge/MultiCommitService.swift:183,239` — protocol + live + mock
+  + tests only), so `squashResultBanner`/`reorderResultBanner`
+  (`Views/Merge/MultiCommitOperation.swift:418,427`) never fire,
+  `successfulSquash`/`successfulReorder` banners are never posted, and no
+  undo record can exist for them. Commit→commit drop (`routeCommitDrop`
+  `.commit` target) and insertion-point reorder (`CommitList.onReorder`,
+  `Views/History/CommitList.swift:37,201`) have no execution handlers, and
+  `ContinueOperationCTAView`
+  (`Views/Merge/MultiCommitWizard.swift:491`) has no call sites — there is
+  no continue/abort UI after conflicts either.
 
 ## Release drive (Sparkle / deeplink / persistence)
 
@@ -57,6 +89,11 @@ successful refresh clears stale `.error` sheets (`clearErrorPopups`).
 
 ## Polish / small deviations
 
+- **`.multiCommitOperation` dedups by type, ignoring kind.** `showPopup`
+  dedupes on `type` only (`App/AppState.swift:183`), so opening e.g. merge
+  while the rebase dialog is open is silently dropped — and an open dialog
+  can never be retargeted (update-from-default included). Decide whether
+  kinds replace each other.
 - **`.cloning` selection unreachable.** Defined (`App/AppState.swift:14`) and
   rendered (`ContentView.swift:98-99`, `CloningRepositoryView`) but nothing
   ever selects it (`CloneDispatcher.swift:74-120` never touches `AppStore`;
