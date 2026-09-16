@@ -37,6 +37,7 @@ public enum MultiCommitTests {
         testValidationGuards(&failures)
         testLastRetainedCommitRef(&failures)
         testCanStartOperation(&failures)
+        testResolveChooseBranchInitial(&failures)
         testDropRouting(&failures)
         testKeyboardReorder(&failures)
         testBannerMapping(&failures)
@@ -333,6 +334,37 @@ public enum MultiCommitTests {
         check(canStartOperation(selectedBranch: testBranch("main"), currentBranch: current, commitCount: 0, hasConflictsPreview: true, isInvalidPreview: false) == true, "conflicts always start", test: test, failures: &failures)
         check(canStartOperation(selectedBranch: testBranch("main"), currentBranch: current, commitCount: 3, hasConflictsPreview: false, isInvalidPreview: true) == false, "invalid preview", test: test, failures: &failures)
         check(canStartOperation(selectedBranch: testBranch("main"), currentBranch: current, commitCount: 3, hasConflictsPreview: false, isInvalidPreview: false) == true, "clean start", test: test, failures: &failures)
+    }
+
+    // MARK: - Choose-branch preselect
+
+    static func testResolveChooseBranchInitial(_ failures: inout [Failure]) {
+        let test = "choose-branch-initial"
+        let eligible: Set<String> = ["main", "feature"]
+        check(resolveChooseBranchInitialName(
+            initialBranchName: "feature", currentBranchName: "feature",
+            defaultBranchName: "main", eligibleBranchNames: eligible) == "feature",
+              "explicit wins", test: test, failures: &failures)
+        check(resolveChooseBranchInitialName(
+            initialBranchName: nil, currentBranchName: "feature",
+            defaultBranchName: "main", eligibleBranchNames: eligible) == "main",
+              "default when off-default", test: test, failures: &failures)
+        check(resolveChooseBranchInitialName(
+            initialBranchName: nil, currentBranchName: "main",
+            defaultBranchName: "main", eligibleBranchNames: eligible) == nil,
+              "nil when on default", test: test, failures: &failures)
+        check(resolveChooseBranchInitialName(
+            initialBranchName: nil, currentBranchName: "feature",
+            defaultBranchName: nil, eligibleBranchNames: eligible) == nil,
+              "nil without default", test: test, failures: &failures)
+        check(resolveChooseBranchInitialName(
+            initialBranchName: "gone", currentBranchName: "feature",
+            defaultBranchName: "main", eligibleBranchNames: eligible) == "main",
+              "stale initial falls back to default", test: test, failures: &failures)
+        check(resolveChooseBranchInitialName(
+            initialBranchName: "gone", currentBranchName: "feature",
+            defaultBranchName: "missing", eligibleBranchNames: eligible) == nil,
+              "stale everything → nil", test: test, failures: &failures)
     }
 
     // MARK: - Drop routing

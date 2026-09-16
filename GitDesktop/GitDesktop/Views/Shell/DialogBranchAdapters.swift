@@ -183,6 +183,8 @@ struct MergeDialogAdapter: View {
     @ObservedObject var store: AppStore
     var popup: Popup
     var repositoryID: Int
+    var initialSquash: Bool = false
+    var initialBranchName: String? = nil
 
     var body: some View {
         Group {
@@ -195,13 +197,15 @@ struct MergeDialogAdapter: View {
                     allBranches: state.branches,
                     recentBranches: [],
                     defaultBranch: state.defaultBranch,
+                    squash: initialSquash,
+                    initialBranchName: initialBranchName,
                     service: LiveMergeService(),
                     onBanner: { banner in
                         // Fix the Task-5 placeholder (`repositoryID: 0`) to the
                         // real repository so the banner can reopen this dialog.
                         let fixed: Banner = {
                             if case .mergeConflictsFound(let our, let inner) = banner,
-                               case .multiCommitOperation(let rid) = inner, rid == 0 {
+                               case .multiCommitOperation(let rid, _, _) = inner, rid == 0 {
                                 _ = inner
                                 return .mergeConflictsFound(
                                     ourBranch: our, popup: .merge(repositoryID: repository.id))

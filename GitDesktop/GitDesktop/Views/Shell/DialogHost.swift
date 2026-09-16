@@ -107,8 +107,10 @@ struct PopupSheet: View {
             case .commitConflictsWarning(_, let fileIDs):
                 CommitConflictsWarningDialogAdapter(store: store, popup: popup, fileIDs: fileIDs)
             // MARK: Multi-commit (Task 6, composed in Task 13)
-            case .multiCommitOperation(let repositoryID):
-                MultiCommitOperationDialogAdapter(store: store, popup: popup, repositoryID: repositoryID)
+            case .multiCommitOperation(let repositoryID, let kind, let initialBranchName):
+                MultiCommitOperationDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID,
+                    kind: kind, initialBranchName: initialBranchName)
             case .warnForcePush(let operation):
                 WarnForcePushDialogAdapter(store: store, popup: popup, operation: operation)
             case .commitMessage(_, let dialogTitle, let dialogButtonText):

@@ -122,13 +122,26 @@ struct BannerRow: View {
             Task { await shellUndoBanner(store: store, banner: banner) }
         case .reopenConflictDialog:
             // Reopen the stored conflict dialog. Conflict banners persist
-            // until the flow resolves, so the banner stays up.
+            // until the flow resolves, so the banner stays up. The reopened
+            // choose-branch dialog carries the banner's operation kind
+            // (`.conflictsFound` is only posted from the merge flow).
             switch banner {
             case .mergeConflictsFound(_, let popup):
                 store.showPopup(popup)
-            case .rebaseConflictsFound, .cherryPickConflictsFound, .conflictsFound:
+            case .rebaseConflictsFound:
                 if let id = store.selectedRepository?.id {
-                    store.showPopup(.multiCommitOperation(repositoryID: id))
+                    store.showPopup(.multiCommitOperation(
+                        repositoryID: id, kind: .rebase, initialBranchName: nil))
+                }
+            case .cherryPickConflictsFound:
+                if let id = store.selectedRepository?.id {
+                    store.showPopup(.multiCommitOperation(
+                        repositoryID: id, kind: .cherryPick, initialBranchName: nil))
+                }
+            case .conflictsFound:
+                if let id = store.selectedRepository?.id {
+                    store.showPopup(.multiCommitOperation(
+                        repositoryID: id, kind: .merge, initialBranchName: nil))
                 }
             default:
                 break

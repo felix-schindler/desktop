@@ -133,7 +133,8 @@ struct BranchFoldoutContent: View {
                 case .conflictsEncountered, .outstandingFilesNotStaged:
                     store.setBanner(.cherryPickConflictsFound(
                         targetBranchName: branch.nameWithoutRemote, actionToken: UUID()))
-                    store.showPopup(.multiCommitOperation(repositoryID: repository.id))
+                    store.showPopup(.multiCommitOperation(
+                        repositoryID: repository.id, kind: .cherryPick, initialBranchName: nil))
                 case .unableToStart, .error:
                     break
                 }

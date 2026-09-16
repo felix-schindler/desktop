@@ -32,6 +32,8 @@ public struct MergeWizardView<Service: MergeService>: View {
         allBranches: [Branch],
         recentBranches: [Branch] = [],
         defaultBranch: Branch? = nil,
+        squash: Bool = false,
+        initialBranchName: String? = nil,
         service: Service,
         onBanner: ((Banner) -> Void)? = nil,
         onShowPopup: ((Popup) -> Void)? = nil,
@@ -45,6 +47,17 @@ public struct MergeWizardView<Service: MergeService>: View {
         self.defaultBranch = defaultBranch
         self.service = service
         self._state = State(initialValue: MergeWizardState(ourBranchName: ourBranch.name))
+        self._squash = State(initialValue: squash)
+        // Preselect like the reference choose-branch dialog: explicit
+        // initial first, else the default branch unless already on it.
+        let eligible = Set(allBranches
+            .filter { $0.type == .local && $0.ref != ourBranch.ref }
+            .map(\.name))
+        self._pickedBranchName = State(initialValue: resolveChooseBranchInitialName(
+            initialBranchName: initialBranchName,
+            currentBranchName: ourBranch.name,
+            defaultBranchName: defaultBranch?.name,
+            eligibleBranchNames: eligible))
         self.onBanner = onBanner
         self.onShowPopup = onShowPopup
         self.onFinished = onFinished
@@ -196,7 +209,7 @@ public struct MergeWizardView<Service: MergeService>: View {
             state = mergeWizardReduce(state, .mergeConflicted(files: placeholder))
             onBanner?(.mergeConflictsFound(
                 ourBranch: ourBranch.name,
-                popup: .multiCommitOperation(repositoryID: 0)))
+                popup: .multiCommitOperation(repositoryID: 0, kind: .merge, initialBranchName: nil)))
         }
     }
 

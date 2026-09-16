@@ -21,6 +21,8 @@ public struct MultiCommitWizardView: View {
     var conflictFiles: [MultiCommitConflictFile]
     var progress: MultiCommitProgress?
     var askForConfirmationOnForcePush: Bool
+    var initialBranchName: String?
+    var defaultBranchName: String?
     var onPickBaseBranch: ((Branch) -> Void)?
     var onBegin: (() -> Void)?
     var onConfirmForcePushSetting: ((Bool) -> Void)?
@@ -37,6 +39,8 @@ public struct MultiCommitWizardView: View {
         conflictFiles: [MultiCommitConflictFile] = [],
         progress: MultiCommitProgress? = nil,
         askForConfirmationOnForcePush: Bool = true,
+        initialBranchName: String? = nil,
+        defaultBranchName: String? = nil,
         onPickBaseBranch: ((Branch) -> Void)? = nil,
         onBegin: (() -> Void)? = nil,
         onConfirmForcePushSetting: ((Bool) -> Void)? = nil,
@@ -52,6 +56,8 @@ public struct MultiCommitWizardView: View {
         self.conflictFiles = conflictFiles
         self.progress = progress
         self.askForConfirmationOnForcePush = askForConfirmationOnForcePush
+        self.initialBranchName = initialBranchName
+        self.defaultBranchName = defaultBranchName
         self.onPickBaseBranch = onPickBaseBranch
         self.onBegin = onBegin
         self.onConfirmForcePushSetting = onConfirmForcePushSetting
@@ -69,6 +75,8 @@ public struct MultiCommitWizardView: View {
                 operation: kind,
                 currentBranch: currentBranch,
                 branches: branches,
+                initialBranchName: initialBranchName,
+                defaultBranchName: defaultBranchName,
                 onSelect: { onPickBaseBranch?($0) },
                 onBegin: { onBegin?() },
                 onDismiss: { onDismiss?() })
@@ -116,6 +124,8 @@ public struct RebaseChooseBranchView: View {
     var behindCount: Int?
     var previewLoading: Bool
     var previewInvalid: Bool
+    var initialBranchName: String?
+    var defaultBranchName: String?
     var onSelect: ((Branch) -> Void)?
     var onBegin: (() -> Void)?
     var onDismiss: (() -> Void)?
@@ -131,6 +141,8 @@ public struct RebaseChooseBranchView: View {
         behindCount: Int? = nil,
         previewLoading: Bool = false,
         previewInvalid: Bool = false,
+        initialBranchName: String? = nil,
+        defaultBranchName: String? = nil,
         onSelect: ((Branch) -> Void)? = nil,
         onBegin: (() -> Void)? = nil,
         onDismiss: (() -> Void)? = nil
@@ -142,9 +154,25 @@ public struct RebaseChooseBranchView: View {
         self.behindCount = behindCount
         self.previewLoading = previewLoading
         self.previewInvalid = previewInvalid
+        self.initialBranchName = initialBranchName
+        self.defaultBranchName = defaultBranchName
         self.onSelect = onSelect
         self.onBegin = onBegin
         self.onDismiss = onDismiss
+        // Preselect like the reference choose-branch dialog: explicit
+        // initial first, else the default branch unless already on it.
+        let eligible = Set(branches
+            .filter { $0.name != currentBranch.name }
+            .map(\.name))
+        let resolved = resolveChooseBranchInitialName(
+            initialBranchName: initialBranchName,
+            currentBranchName: currentBranch.name,
+            defaultBranchName: defaultBranchName,
+            eligibleBranchNames: eligible)
+        if let resolved,
+           let match = branches.first(where: { $0.name == resolved }) {
+            self._selectedBranchID = State(initialValue: match.id as String?)
+        }
     }
 
     private var selectedBranch: Branch? {
@@ -203,6 +231,16 @@ public struct RebaseChooseBranchView: View {
         .frame(minWidth: 380)
         .onChange(of: selectedBranchID) { _, newValue in
             if let branch = branches.first(where: { $0.id == newValue }) {
+                onSelect?(branch)
+            }
+        }
+        .onAppear {
+            // Seed the host with the preselected branch (mirrors the
+            // reference `componentDidMount` → `onSelectionChanged`); later
+            // user picks flow through `onChange` above. No loop: this fires
+            // once per dialog presentation, and state updates preserve it.
+            if let id = selectedBranchID,
+               let branch = branches.first(where: { $0.id == id }) {
                 onSelect?(branch)
             }
         }

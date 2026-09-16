@@ -11,35 +11,58 @@ struct MultiCommitOperationDialogAdapter: View {
     @ObservedObject var store: AppStore
     var popup: Popup
     var repositoryID: Int
+    var kind: MultiCommitOperationKind
+    var initialBranchName: String?
     @State private var pickedBase: Branch?
     @State private var isWorking = false
 
     var body: some View {
         Group {
-            if let repository = repositoryForID(repositoryID, in: store),
-               let state = store.repositoryStates[repository.hash],
-               case .valid(let current) = state.tip {
-                MultiCommitWizardView(
-                    step: .chooseBranch(kind: .rebase),
-                    currentBranch: current,
-                    branches: state.branches,
-                    onPickBaseBranch: { pickedBase = $0 },
-                    onBegin: { beginRebase(repository: repository, current: current) },
-                    onDismiss: { store.closePopup(popup) }
-                )
-                .overlay {
-                    if isWorking {
-                        ZStack {
-                            Color(nsColor: .windowBackgroundColor).opacity(0.6)
-                            ProgressView("Rebasing…").padding(12)
-                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                        }
+            switch kind {
+            case .merge, .squash:
+                // Merge flows own a dedicated wizard (with squash preset);
+                // reuse its adapter so banner fixup + refresh stay in one place.
+                MergeDialogAdapter(
+                    store: store, popup: popup, repositoryID: repositoryID,
+                    initialSquash: kind == .squash,
+                    initialBranchName: initialBranchName)
+            case .rebase, .cherryPick, .reorder:
+                rebaseChooser
+            }
+        }
+    }
+
+    /// Rebase choose-branch step. Cherry-pick/reorder have no choose-branch
+    /// entry in the reference (they start from commits); they fall back here
+    /// because the shell keeps no in-flight operation state to render true
+    /// conflict-reopen steps yet — the previously shown UI is unchanged.
+    @ViewBuilder
+    private var rebaseChooser: some View {
+        if let repository = repositoryForID(repositoryID, in: store),
+           let state = store.repositoryStates[repository.hash],
+           case .valid(let current) = state.tip {
+            MultiCommitWizardView(
+                step: .chooseBranch(kind: .rebase),
+                currentBranch: current,
+                branches: state.branches,
+                initialBranchName: initialBranchName,
+                defaultBranchName: state.defaultBranch?.name,
+                onPickBaseBranch: { pickedBase = $0 },
+                onBegin: { beginRebase(repository: repository, current: current) },
+                onDismiss: { store.closePopup(popup) }
+            )
+            .overlay {
+                if isWorking {
+                    ZStack {
+                        Color(nsColor: .windowBackgroundColor).opacity(0.6)
+                        ProgressView("Rebasing…").padding(12)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                     }
                 }
-                .disabled(isWorking)
-            } else {
-                ErrorDialog(store: store, popup: popup, message: "No current branch for this operation.")
             }
+            .disabled(isWorking)
+        } else {
+            ErrorDialog(store: store, popup: popup, message: "No current branch for this operation.")
         }
     }
 

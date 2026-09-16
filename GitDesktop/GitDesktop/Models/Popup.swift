@@ -116,7 +116,7 @@ public enum Popup: Sendable, Equatable, Identifiable {
     case changeRepositoryAlias(repositoryID: Int)
     case thankYou
     case commitMessage(repositoryID: Int, dialogTitle: String, dialogButtonText: String)
-    case multiCommitOperation(repositoryID: Int)
+    case multiCommitOperation(repositoryID: Int, kind: MultiCommitOperationKind, initialBranchName: String?)
     case warnLocalChangesBeforeUndo(repositoryID: Int, commitSHA: String, isWorkingDirectoryClean: Bool)
     case warningBeforeReset(repositoryID: Int, commitSHA: String)
     case addSSHHost(host: String, fingerprint: String)

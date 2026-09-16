@@ -24,10 +24,6 @@ The test target also proves `project.pbxproj` hand-edits are feasible again
 - **Stale `.error` sheets never auto-clear.** `showPopup` always appends
   (`App/AppState.swift:172-190`); successful refresh only updates state
   (`App/AppStore+GitPipeline.swift:66-82`). Decide whether success clears errors.
-- **`Popup.multiCommitOperation` has no mode discriminator**
-  (`Models/Popup.swift:119` — only `repositoryID`). Merge/squash/rebase/update
-  all open the same dialog; add the kind + preselect `defaultBranch` for
-  update-from-default.
 
 ## Release drive (Sparkle / deeplink / persistence)
 

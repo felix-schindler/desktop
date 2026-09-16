@@ -447,23 +447,27 @@ public enum Task14Tests {
             test: test, failures: &failures)
         app.closeAllPopups()
         app.menuMerge(squash: false)
-        check(app.currentPopup == .multiCommitOperation(repositoryID: repo.id),
-              "merge → flow, got \(String(describing: app.currentPopup))",
+        check(app.currentPopup == .multiCommitOperation(
+            repositoryID: repo.id, kind: .merge, initialBranchName: nil),
+              "merge → merge flow, got \(String(describing: app.currentPopup))",
               test: test, failures: &failures)
         app.closeAllPopups()
         app.menuMerge(squash: true)
-        check(app.currentPopup == .multiCommitOperation(repositoryID: repo.id),
-              "squash-merge → flow, got \(String(describing: app.currentPopup))",
+        check(app.currentPopup == .multiCommitOperation(
+            repositoryID: repo.id, kind: .squash, initialBranchName: nil),
+              "squash-merge → squash flow, got \(String(describing: app.currentPopup))",
               test: test, failures: &failures)
         app.closeAllPopups()
         app.menuRebase()
-        check(app.currentPopup == .multiCommitOperation(repositoryID: repo.id),
-              "rebase → flow, got \(String(describing: app.currentPopup))",
+        check(app.currentPopup == .multiCommitOperation(
+            repositoryID: repo.id, kind: .rebase, initialBranchName: nil),
+              "rebase → rebase flow, got \(String(describing: app.currentPopup))",
               test: test, failures: &failures)
         app.closeAllPopups()
         app.menuUpdateFromDefault()
-        check(app.currentPopup == .multiCommitOperation(repositoryID: repo.id),
-              "update-from-default → flow, got \(String(describing: app.currentPopup))",
+        check(app.currentPopup == .multiCommitOperation(
+            repositoryID: repo.id, kind: .merge, initialBranchName: "main"),
+              "update-from-default → merge preselecting main, got \(String(describing: app.currentPopup))",
               test: test, failures: &failures)
         app.closeAllPopups()
         app.menuCreateBranch()

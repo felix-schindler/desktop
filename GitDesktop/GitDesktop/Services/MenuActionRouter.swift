@@ -464,38 +464,38 @@ public extension AppStore {
             repositoryID: repo.id, targetCommitSHA: sha, initialName: nil))
     }
 
-    /// Menu Branch → Merge / Squash-and-Merge. Opens the multi-commit flow
-    /// (choose-branch → merge), which executes the merge and owns the
-    /// conflict UI (Tasks 5–6, rendered by Task 13).
-    ///
-    /// Coordination gap for Task 13: `Popup.multiCommitOperation` carries no
-    /// merge-vs-rebase-vs-squash discriminator, so squash and merge open the
-    /// same dialog today. Task 13 should add the mode (or read it from
-    /// compare/multi-commit operation state) when it renders the bespoke
-    /// wizard; see TODO.md.
+    /// Menu Branch → Merge / Squash-and-Merge. Opens the merge flow's
+    /// choose-branch step with the matching mode (`MergeWizardView` presets
+    /// its squash toggle), which executes the merge and owns the conflict
+    /// UI (Tasks 5–6, rendered by Task 13).
     func menuMerge(squash: Bool) {
         guard let repo = selectedRepository, let state = selectedState else { return }
         guard case .valid = state.tip else { return }
-        _ = squash
-        showPopup(.multiCommitOperation(repositoryID: repo.id))
+        showPopup(.multiCommitOperation(
+            repositoryID: repo.id,
+            kind: squash ? .squash : .merge,
+            initialBranchName: nil))
     }
 
-    /// Menu Branch → Rebase Current Branch. Same flow entry as merge (the
-    /// wizard's rebase choose-branch step); see the discriminator gap above.
+    /// Menu Branch → Rebase Current Branch. Opens the rebase choose-branch
+    /// step (preselecting the default branch per the reference dialog).
     func menuRebase() {
         guard let repo = selectedRepository, let state = selectedState else { return }
         guard case .valid = state.tip else { return }
-        showPopup(.multiCommitOperation(repositoryID: repo.id))
+        showPopup(.multiCommitOperation(
+            repositoryID: repo.id, kind: .rebase, initialBranchName: nil))
     }
 
     /// Menu Branch → Update from Default Branch. The reference merges the
     /// default branch directly; the Swift app opens the same merge flow
     /// instead so conflicts land in the wizard UI rather than stranding a
-    /// conflicted working directory with no dialog open. Task 13 should
-    /// preselect `state.defaultBranch` in the wizard's choose-branch step.
+    /// conflicted working directory with no dialog open — with the default
+    /// branch preselected in the choose-branch step.
     func menuUpdateFromDefault() {
         guard let repo = selectedRepository, let state = selectedState else { return }
-        guard updateFromDefaultTarget(state: state) != nil else { return }
-        showPopup(.multiCommitOperation(repositoryID: repo.id))
+        guard let target = updateFromDefaultTarget(state: state) else { return }
+        showPopup(.multiCommitOperation(
+            repositoryID: repo.id, kind: .merge,
+            initialBranchName: target.name))
     }
 }

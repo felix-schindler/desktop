@@ -201,3 +201,28 @@ public func mergeWizardReduce(_ state: MergeWizardState, _ action: MergeWizardAc
     }
     return next
 }
+
+// MARK: - Choose-branch preselect
+
+/// Branch preselected when a merge/rebase choose-branch dialog opens.
+/// Port of `resolveSelectedBranch` in
+/// `ui/multi-commit-operation/choose-branch/base-choose-branch-dialog.tsx`:
+/// the explicit initial branch wins; otherwise the default branch unless
+/// already on it. Names missing from `eligibleBranchNames` never resolve
+/// (stale popups fall back instead of stranding an unpickable selection).
+nonisolated public func resolveChooseBranchInitialName(
+    initialBranchName: String?,
+    currentBranchName: String,
+    defaultBranchName: String?,
+    eligibleBranchNames: Set<String>
+) -> String? {
+    if let initialBranchName, eligibleBranchNames.contains(initialBranchName) {
+        return initialBranchName
+    }
+    if let defaultBranchName,
+       defaultBranchName != currentBranchName,
+       eligibleBranchNames.contains(defaultBranchName) {
+        return defaultBranchName
+    }
+    return nil
+}
