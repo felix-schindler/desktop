@@ -5,6 +5,14 @@ PRs merged to `development`. Only the still-open items below are kept —
 each verified against code. Build/test gotchas and seams now live in
 `AGENTS.md` and are not repeated here.
 
+Since the last revision two items landed and are removed below:
+`findDefaultBranch` now resolves `origin/HEAD` via `symbolic-ref`
+(`Git/Operations/DefaultBranchOperations.swift`, `Stores/GitStore.swift:87`),
+and there is a real unit-test target (`GitDesktopTests`, `xcodebuild test`).
+The test target also proves `project.pbxproj` hand-edits are feasible again
+(`plutil -lint` + full `build`/`test` to verify) — so the release blockers in
+§2 are actionable now, not banned.
+
 ## Correctness gaps
 
 - **Partial staging commits full files.** `ChangesStore.performCommit`
@@ -12,30 +20,51 @@ each verified against code. Build/test gotchas and seams now live in
   via `git add` (`Git/GitService.swift:169-172,198-207`). Needs
   `git apply --cached` patch staging before commit.
 - **Banner undo is acknowledge-only (no undo SHA).**
-  `shellUndoBanner` (`Views/Shell/ShellPipelineActions.swift:413-436`) only
-  refreshes + posts `*Undone` banners; `Banner` carries counts/token, no SHA
-  (`Models/Banner.swift:36-41`). True undo needs SHA plumbing + `reset --hard`.
-- **`findDefaultBranch` is heuristic.** Local `main` → `master` → first sorted
-  (`Stores/GitStore.swift:79-92`, ignores remote). Add `symbolic-ref
-  origin/HEAD` call — `RefsParser.swift:77` helper exists with no live caller.
+  `shellUndoBanner` (`Views/Shell/ShellPipelineActions.swift:419-437`) only
+  refreshes + posts `*Undone` banners; success `Banner` cases carry
+  counts/token, no SHA (`Models/Banner.swift:34-40`). True undo needs SHA
+  plumbing + `reset --hard` (with dirty-workdir / branch-switched guards, see
+  the reference `_undoMultiCommitOperation`).
 - **Stale `.error` sheets never auto-clear.** `showPopup` always appends
-  (`App/AppState.swift:170-190`); successful refresh only updates state
+  (`App/AppState.swift:172-190`); successful refresh only updates state
   (`App/AppStore+GitPipeline.swift:66-82`). Decide whether success clears errors.
 - **`Popup.multiCommitOperation` has no mode discriminator**
   (`Models/Popup.swift:119` — only `repositoryID`). Merge/squash/rebase/update
   all open the same dialog; add the kind + preselect `defaultBranch` for
   update-from-default.
 
-## Release blockers (need pbxproj-adjacent changes)
+## Release drive (Sparkle / deeplink / persistence)
 
-- **Sparkle not bundled.** `Services/UpdateService.swift:1,7-13` is a
-  state machine only (SPM needs a banned `pbxproj` edit). Release step: set
-  `SUFeedURL` to the real appcast (`feedURLFromInfoDictionary`, :104-108;
-  dev builds have no key → checks stay local).
-- **Deeplink handler without registration.**
-  `Services/DeepLinkService.swift:15` + `MyApp.swift:22-24,62-74` parse
-  `x-gitdesktop-client://openrepo/…`, but no `CFBundleURLTypes`/Info.plist
-  exists in the synced group.
+- **Sparkle: framework still not bundled.** Sparkle is the standard macOS
+  auto-update framework (outside the App Store): the app polls an
+  appcast-XML feed for new versions and installs them in place.
+  Already done: `Services/UpdateService.swift` implements the full state
+  machine (check → available → downloading → installing →
+  installedPendingRestart) against a Sparkle-format appcast, including feed
+  parsing/version compare (`feedURLFromInfoDictionary`, :104-108), the
+  update banner + showcase + `InstallingUpdate` quit-guard, menu wiring, and
+  tests (`Task10Tests`/`Task15Tests`, `simulatedRemoteVersion` seam).
+  Still to do:
+  1. Add the Sparkle SPM package (Xcode → Package Dependencies; needs a
+     `pbxproj` edit — proven feasible since `GitDesktopTests`).
+  2. Stand up `SPUStandardUpdaterController` and forward its states into
+     `UpdateService.state`; banner/showcase/quit-guard stay as-is.
+  3. Set `SUFeedURL` to the real appcast URL (dev builds have no key →
+     checks stay local) and host `appcast.xml` + signed update artifacts
+     (EdDSA `SUPublicEDKey`).
+  4. Verify end to end on a signed release build (old version offers update,
+     downloads, installs, restarts).
+- **Deeplink handler without registration.** Parsing exists:
+  `Services/DeepLinkService.swift:15` (`scheme = "x-gitdesktop-client"`) +
+  `MyApp.swift:22-24` (`.onOpenURL`) `,59-74` (`handleDeepLink`: match known
+  clone by URL, else `.cloneRepository` popup). But the scheme is not
+  registered — no `CFBundleURLTypes` exists (the project uses
+  `GENERATE_INFOPLIST_FILE = YES`, so there is no physical Info.plist).
+  Still to do:
+  1. Register the scheme (`INFOPLIST_KEY_CFBundleURLTypes` entries or a real
+     `Info.plist`; needs a `pbxproj`-adjacent edit).
+  2. Verify with `open 'x-gitdesktop-client://openrepo/<url>'`: known repo
+     gets selected, unknown repo opens the clone dialog.
 - **Persistence still UserDefaults JSON**
   (`Persistence/RepositoryPersistence.swift:4-8,36-60`). GRDB vs SwiftData
   decision never made — migrate `save`/`load`/`nextID`/`matchExisting` then.
