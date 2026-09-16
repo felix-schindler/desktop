@@ -1,9 +1,13 @@
+#if TESTBUILD
+@testable import GitDesktop
+#endif
 import Foundation
 
 // MARK: - Task9Tests
 // Pure-function tests for Task 9 (repos/onboarding/settings/help/CLI/deeplink).
 // Same harness style as Task8Tests: no test bundle needed.
 
+@MainActor
 public enum Task9Tests {
     public struct Failure: Sendable {
         public var test: String

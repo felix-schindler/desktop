@@ -1,3 +1,6 @@
+#if TESTBUILD
+@testable import GitDesktop
+#endif
 import Foundation
 
 // MARK: - Task15Tests
@@ -10,6 +13,9 @@ import Foundation
 // `runAll` is sync by harness convention while `CloneDispatcher` is
 // MainActor-isolated.
 
+#if TESTBUILD
+@MainActor
+#endif
 public enum Task15Tests {
     public struct Failure: Sendable {
         public var test: String

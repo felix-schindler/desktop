@@ -1,3 +1,6 @@
+#if TESTBUILD
+@testable import GitDesktop
+#endif
 import Foundation
 
 // MARK: - ShellTests
@@ -6,6 +9,7 @@ import Foundation
 // `ParserTests`: no test framework so this compiles inside the app target;
 // `runAll()` returns the failure count.
 
+@MainActor
 public enum ShellTests {
     public struct Failure: Sendable {
         public var test: String

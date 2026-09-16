@@ -1,3 +1,6 @@
+#if TESTBUILD
+@testable import GitDesktop
+#endif
 import Foundation
 
 // MARK: - Task10Tests
@@ -5,6 +8,7 @@ import Foundation
 // crash reporter payload, Apple Intelligence prompt/gate).
 // Same harness style as Task9Tests: no test bundle needed.
 
+@MainActor
 public enum Task10Tests {
     public struct Failure: Sendable {
         public var test: String

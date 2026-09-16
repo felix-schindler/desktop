@@ -17,11 +17,40 @@ No GitHub integration (OAuth, PRs, issues, forks, publish-to-GitHub, `View on Gi
 
 ```bash
 xcodebuild -project GitDesktop/GitDesktop.xcodeproj -scheme GitDesktop -destination 'platform=macOS' build
+xcodebuild -project GitDesktop/GitDesktop.xcodeproj -scheme GitDesktop -destination 'platform=macOS' test
 ```
 
-- No test target (pbxproj is hands-off). Suites in `GitDesktop/GitDesktop/Tests/*Tests.swift` expose `runAll()` and compile via a `swiftc` harness: pass `-module-name GitDesktop`, name the entry file `main.swift`. Example file set is documented atop `Tests/Task15Tests.swift` / `Tests/Task16Tests.swift` (whole app minus `MyApp.swift` for end-to-end; smaller Foundation-only subsets per-suite).
-- Harness deadlock trap: `Task15Tests.runAll()` is sync but pumps `RunLoop.main` internally — run it standalone, never from inside `Task { @MainActor }`. Keep `@MainActor` suites (`GitStoreTests`, `Task14Tests`, `RepositoryDetailTests`, `Task16Tests`) in a separate binary via the `Task { @MainActor … }; dispatchMain()` pattern.
+- `xcodebuild test` runs the `GitDesktopTests` unit-test target (app-hosted,
+  `TEST_HOST` = the app). Suites in `GitDesktop/GitDesktop/Tests/*Tests.swift`
+  expose `runAll()`; thin `XCTestCase` wrappers live in
+  `GitDesktop/GitDesktopTests/HarnessSuiteTests.swift` (one method per suite).
+  Prefer `xcodebuild test` over the legacy `swiftc` harness below.
+- The test target compiles `GitDesktop/Tests/` + `GitDesktopTests/` only and
+  resolves app code via `@testable import GitDesktop`, guarded per file with
+  `#if TESTBUILD` (the flag is set via `OTHER_SWIFT_FLAGS` on the test target
+  only) so the harness keeps compiling all sources as one module. New suites:
+  add the `runAll()` enum in `Tests/` (with the `TESTBUILD` import guard) plus
+  one wrapper method.
+- pbxproj: both targets use filesystem-synced groups — just add files, no
+  manual file entries. The app group excludes `Tests/` via
+  `membershipExceptions`; the test target has its own synced groups
+  (`GitDesktop/Tests`, `GitDesktopTests`). Target-level changes (new targets,
+  settings) still need careful hand-edits — validate with `plutil -lint` and a
+  full `build` + `test` run.
+- Legacy `swiftc` harness (still works): pass `-module-name GitDesktop`, name
+  the entry file `main.swift` (whole app minus `MyApp.swift` for end-to-end;
+  smaller Foundation-only subsets per-suite).
+- Harness deadlock trap: `Task15Tests.runAll()` is sync but pumps `RunLoop.main`
+  internally — run it standalone, never from inside `Task { @MainActor }`. (It
+  is the one suite whose `@MainActor` annotation is `#if TESTBUILD`-gated for
+  exactly this reason.) Keep `@MainActor` suites (`GitStoreTests`,
+  `Task14Tests`, `RepositoryDetailTests`, `Task16Tests`) in a separate binary
+  via the `Task { @MainActor … }; dispatchMain()` pattern.
 - Keep pure logic in Foundation-only files (e.g. `ChangesLogic.swift`, `Git/Parsers/`, `Git/Progress/`) so it stays harness-testable without git or AppKit.
+- New files that rely on ambient `MainActor` isolation (like most suites do via
+  the app target default) need an explicit `@MainActor` annotation — the test
+  target has no default isolation because `XCTestCase` inits are nonisolated
+  and would conflict.
 
 ## Architecture seams (code against these, never redefine)
 

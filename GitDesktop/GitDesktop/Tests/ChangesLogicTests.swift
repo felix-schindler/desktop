@@ -1,3 +1,6 @@
+#if TESTBUILD
+@testable import GitDesktop
+#endif
 import Foundation
 
 // MARK: - ChangesLogicTests

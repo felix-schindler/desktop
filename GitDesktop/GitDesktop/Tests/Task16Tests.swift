@@ -1,3 +1,6 @@
+#if TESTBUILD
+@testable import GitDesktop
+#endif
 import Foundation
 
 // MARK: - Task16Tests
@@ -105,11 +108,24 @@ public enum Task16Tests {
         app.makeService = { _ in mock }
         await app.refreshRepository(repo)
         app.selectRepository(repo)
+        // Drain the fire-and-forget select refresh: it may not have inserted
+        // its hash when first checked, so wait for it to be observed in
+        // flight and then finish (a plain `isRefreshing` spin can miss a
+        // late-starting task and leave a stale refresh racing the test).
         var spins = 0
-        while app.isRefreshing(repo) && spins < 50 {
-            try? await Task.sleep(nanoseconds: 20_000_000)
+        var sawRefreshing = false
+        while spins < 200 {
+            if app.isRefreshing(repo) {
+                sawRefreshing = true
+            } else if sawRefreshing {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 5_000_000)
             spins += 1
         }
+        // Re-refresh explicitly so the published state reflects the current
+        // stubs with nothing in flight when the caller proceeds.
+        await app.refreshRepository(repo)
         return app
     }
 
