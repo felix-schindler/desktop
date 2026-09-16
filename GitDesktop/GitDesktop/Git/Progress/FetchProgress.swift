@@ -8,7 +8,7 @@ import Foundation
 // toolbar).
 
 public struct FetchProgressParser: Sendable {
-    public static let steps = [
+    nonisolated public static let steps = [
         GitProgressStep(title: "remote: Compressing objects", weight: 0.1),
         GitProgressStep(title: "Receiving objects", weight: 0.7),
         GitProgressStep(title: "Resolving deltas", weight: 0.2),
@@ -17,19 +17,19 @@ public struct FetchProgressParser: Sendable {
     public var remoteName: String
     public var core: GitProgressParser
 
-    public init(remoteName: String) {
+    nonisolated public init(remoteName: String) {
         self.remoteName = remoteName
         self.core = GitProgressParser(steps: Self.steps)
     }
 
-    public var title: String { "Fetching \(remoteName)" }
+    nonisolated public var title: String { "Fetching \(remoteName)" }
 
-    public var initialProgress: AppProgress {
+    nonisolated public var initialProgress: AppProgress {
         .fetch(remote: remoteName, payload: ProgressPayload(value: 0, title: title))
     }
 
     /// Parse one stderr line. Returns nil for lines the UI should ignore.
-    public mutating func parse(line: String) -> AppProgress? {
+    nonisolated public mutating func parse(line: String) -> AppProgress? {
         switch core.parse(line: line) {
         case .progress(let percent, let info):
             return .fetch(

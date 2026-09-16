@@ -78,7 +78,7 @@ public struct MultiCommitProgress: Sendable, Equatable {
 
 /// Format a rebase fraction to two significant figures, clamped to 0...1.
 /// Port of `formatRebaseValue` in `lib/rebase.ts`.
-public func formatRebaseValue(_ value: Double) -> Double {
+nonisolated public func formatRebaseValue(_ value: Double) -> Double {
     (round(clampProgress(value) * 100)) / 100
 }
 

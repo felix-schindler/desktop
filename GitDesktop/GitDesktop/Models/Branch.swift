@@ -6,7 +6,7 @@ public enum BranchType: Int, Codable, Sendable, Comparable {
     case local = 0
     case remote = 1
 
-    public static func < (lhs: BranchType, rhs: BranchType) -> Bool {
+    nonisolated public static func < (lhs: BranchType, rhs: BranchType) -> Bool {
         lhs.rawValue < rhs.rawValue
     }
 }
@@ -17,7 +17,7 @@ public struct AheadBehind: Codable, Sendable, Equatable {
     public var ahead: Int
     public var behind: Int
 
-    public init(ahead: Int, behind: Int) {
+    nonisolated public init(ahead: Int, behind: Int) {
         self.ahead = ahead
         self.behind = behind
     }
@@ -27,7 +27,7 @@ public struct AheadBehind: Codable, Sendable, Equatable {
 public struct BranchTip: Codable, Sendable, Equatable {
     public var sha: String
 
-    public init(sha: String) {
+    nonisolated public init(sha: String) {
         self.sha = sha
     }
 }
@@ -39,7 +39,7 @@ public struct TrackingBranch: Sendable, Equatable {
     public var upstreamRef: String
     public var upstreamSha: String
 
-    public init(ref: String, sha: String, upstreamRef: String, upstreamSha: String) {
+    nonisolated public init(ref: String, sha: String, upstreamRef: String, upstreamSha: String) {
         self.ref = ref
         self.sha = sha
         self.upstreamRef = upstreamRef
@@ -67,7 +67,7 @@ public struct Branch: Sendable, Equatable, Identifiable {
     /// Canonical ref, e.g. `refs/heads/main`.
     public var ref: String
 
-    public init(name: String, upstream: String?, tip: BranchTip, type: BranchType, ref: String) {
+    nonisolated public init(name: String, upstream: String?, tip: BranchTip, type: BranchType, ref: String) {
         self.name = name
         self.upstream = upstream
         self.tip = tip
@@ -75,10 +75,10 @@ public struct Branch: Sendable, Equatable, Identifiable {
         self.ref = ref
     }
 
-    public var id: String { ref }
+    nonisolated public var id: String { ref }
 
     /// The name of the upstream's remote.
-    public var upstreamRemoteName: String? {
+    nonisolated public var upstreamRemoteName: String? {
         guard let upstream else { return nil }
         guard let range = upstream.range(of: "^(.*?)/.*", options: .regularExpression) else { return nil }
         _ = range
@@ -89,7 +89,7 @@ public struct Branch: Sendable, Equatable, Identifiable {
     }
 
     /// The name of the remote for a remote branch, nil for local branches.
-    public var remoteName: String? {
+    nonisolated public var remoteName: String? {
         guard type == .remote else { return nil }
         let prefix = "refs/remotes/"
         guard ref.hasPrefix(prefix) else { return nil }
@@ -99,27 +99,27 @@ public struct Branch: Sendable, Equatable, Identifiable {
     }
 
     /// The upstream name without the remote prefix.
-    public var upstreamWithoutRemote: String? {
+    nonisolated public var upstreamWithoutRemote: String? {
         guard let upstream else { return nil }
         return Branch.removeRemotePrefix(upstream)
     }
 
     /// The branch name without the remote prefix (local names unchanged).
-    public var nameWithoutRemote: String {
+    nonisolated public var nameWithoutRemote: String {
         guard type != .local else { return name }
         return Branch.removeRemotePrefix(name) ?? name
     }
 
     /// Whether this is a remote branch on one of Desktop's auto-created
     /// (`github-desktop-`) fork remotes. Such branches are hidden as plumbing.
-    public var isDesktopForkRemoteBranch: Bool {
+    nonisolated public var isDesktopForkRemoteBranch: Bool {
         type == .remote && name.hasPrefix(forkedRemotePrefix)
     }
 
     // MARK: - Helpers
 
     /// Mirrors `lib/remove-remote-prefix.ts`: strips the leading `remote/` segment.
-    public static func removeRemotePrefix(_ name: String) -> String? {
+    nonisolated public static func removeRemotePrefix(_ name: String) -> String? {
         guard let slash = name.firstIndex(of: "/") else { return nil }
         let rest = String(name[name.index(after: slash)...])
         return rest.isEmpty ? nil : rest

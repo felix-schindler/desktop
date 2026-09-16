@@ -8,13 +8,13 @@ import Foundation
 public enum LogParser {
     /// Fields emitted by `createLogParser` in `git-delimiter-parser.ts`,
     /// joined with `%x00` under `-z`.
-    public static let logFieldOrder = [
+    nonisolated public static let logFieldOrder = [
         "sha", "shortSha", "summary", "body",
         "author", "committer", "parents", "trailers", "refs",
     ]
 
     /// Split NUL-delimited log output into per-record field dictionaries.
-    public static func parseDelimitedRecords(_ output: Data, fieldCount: Int) -> [[String]] {
+    nonisolated public static func parseDelimitedRecords(_ output: Data, fieldCount: Int) -> [[String]] {
         let text = String(data: output, encoding: .utf8) ?? ""
         let records = text.components(separatedBy: "\0")
         var out: [[String]] = []
@@ -32,7 +32,7 @@ public enum LogParser {
     }
 
     /// Parse one unfolded trailer line (`Token: value` or configured separator).
-    public static func parseSingleUnfoldedTrailer(_ line: String, separators: String = ":") -> Trailer? {
+    nonisolated public static func parseSingleUnfoldedTrailer(_ line: String, separators: String = ":") -> Trailer? {
         for separator in separators {
             if let range = line.range(of: String(separator)),
                range.lowerBound != line.startIndex {
@@ -47,7 +47,7 @@ public enum LogParser {
     }
 
     /// Parse unfolded trailer output (one trailer per line).
-    public static func parseRawUnfoldedTrailers(_ trailers: String, separators: String = ":") -> [Trailer] {
+    nonisolated public static func parseRawUnfoldedTrailers(_ trailers: String, separators: String = ":") -> [Trailer] {
         trailers.components(separatedBy: "\n").compactMap {
             $0.isEmpty ? nil : parseSingleUnfoldedTrailer($0, separators: separators)
         }
@@ -55,7 +55,7 @@ public enum LogParser {
 
     /// Parse the `refs` decoration field: `(HEAD -> main, tag: v1, origin/main)`.
     /// Returns `(tags, branchRefs)`.
-    public static func parseRefs(_ refs: String) -> (tags: [String], branches: [String]) {
+    nonisolated public static func parseRefs(_ refs: String) -> (tags: [String], branches: [String]) {
         let trimmed = refs.trimmingCharacters(in: .whitespaces)
         guard trimmed.hasPrefix("("), trimmed.hasSuffix(")"), trimmed.count > 2 else {
             return ([], [])
@@ -75,7 +75,7 @@ public enum LogParser {
     }
 
     /// Build a `Commit` from one parsed record dictionary.
-    public static func commitFromRecord(
+    nonisolated public static func commitFromRecord(
         sha: String,
         shortSha: String,
         summary: String,
@@ -108,7 +108,7 @@ public enum LogParser {
 
     /// Map a raw `--raw` status token to an app status.
     /// Port of `mapStatus` in `lib/git/log.ts`.
-    public static func mapRawStatus(
+    nonisolated public static func mapRawStatus(
         _ rawStatus: String,
         oldPath: String?,
         srcMode: String,
@@ -139,7 +139,7 @@ public enum LogParser {
         }
     }
 
-    private static func mapSubmoduleFileModes(status: String, srcMode: String, dstMode: String) -> SubmoduleStatus? {
+    nonisolated private static func mapSubmoduleFileModes(status: String, srcMode: String, dstMode: String) -> SubmoduleStatus? {
         // File mode 160000 is git's submodule marker.
         if srcMode == "160000" && dstMode == "160000" && status == "M" {
             return SubmoduleStatus(commitChanged: true, modifiedChanges: false, untrackedChanges: false)
@@ -153,7 +153,7 @@ public enum LogParser {
     /// Parse `git log -C -M -m -1 --first-parent --raw --format=format: --numstat -z`
     /// output into committed file changes.
     /// Port of `parseRawLogWithNumstat` in `log.ts`.
-    public static func parseChangedFiles(
+    nonisolated public static func parseChangedFiles(
         _ stdout: String,
         commitish: String,
         parentCommitish: String

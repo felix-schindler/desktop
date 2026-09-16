@@ -19,7 +19,7 @@ import Foundation
 
 /// Default remote: `origin` when present, else the first remote.
 /// Port of `findDefaultRemote` in `helpers/find-default-remote.ts`.
-public func findDefaultRemote(remotes: [Remote]) -> Remote? {
+nonisolated public func findDefaultRemote(remotes: [Remote]) -> Remote? {
     if let origin = remotes.first(where: { $0.name == "origin" }) {
         return origin
     }
@@ -28,7 +28,7 @@ public func findDefaultRemote(remotes: [Remote]) -> Remote? {
 
 /// Current remote for `tip`: the upstream's remote when the branch tracks
 /// one, else the default. Port of `GitStore.loadRemotes`.
-public func findCurrentRemote(
+nonisolated public func findCurrentRemote(
     remotes: [Remote],
     tip: Tip,
     defaultRemote: Remote?
@@ -45,7 +45,7 @@ public func findCurrentRemote(
 /// from `branches` (carries the for-each-ref upstream) when available.
 /// Mirrors `GitStore.loadStatus`: branch+tip → valid, tip-only → detached,
 /// branch-only → unborn, neither → unknown.
-public func resolveTip(
+nonisolated public func resolveTip(
     headers: StatusParser.StatusHeaders,
     branches: [Branch]
 ) -> Tip {
@@ -80,7 +80,7 @@ public func resolveTip(
 /// first local branch. The reference resolves `origin/HEAD` + config; that
 /// needs a `symbolic-ref` call Tasks 12–14 can add — this keeps Task 11's
 /// refresh to four git calls while giving branch lists a stable default.
-public func findDefaultBranch(
+nonisolated public func findDefaultBranch(
     branches: [Branch],
     defaultRemoteName: String? = nil
 ) -> Branch? {
@@ -93,7 +93,7 @@ public func findDefaultBranch(
 
 /// Merge fresh git data into the previous UI state, preserving the user's
 /// draft (`commitMessage`, `selection`). Pure so tests cover it without git.
-public func buildRepositoryState(
+nonisolated public func buildRepositoryState(
     repository: Repository,
     previous: RepositoryState?,
     status: RepositoryStatus,
@@ -217,7 +217,7 @@ public actor GitStore {
     /// Sync/branch ops that need `SyncOperations` cast inside `work`:
     /// `guard let sync = service as? any SyncOperations else { … }`.
     @discardableResult
-    public func performAndRefresh<T>(
+    public func performAndRefresh<T: Sendable>(
         historyLimit: Int = 100,
         work: @Sendable (any GitService) async throws -> T
     ) async throws -> (T, RepositoryState) {

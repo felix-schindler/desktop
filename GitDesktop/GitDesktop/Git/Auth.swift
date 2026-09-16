@@ -24,7 +24,7 @@ public enum CredentialFormatError: Error, Sendable, Equatable {
 
 /// Parse `git credential` protocol output (`key=value` lines).
 /// Array keys (`key[]`) expand to `key[0]…key[n]` (port of `parseCredential`).
-public func parseCredential(_ value: String) -> [String: String] {
+nonisolated public func parseCredential(_ value: String) -> [String: String] {
     var credential: [String: String] = [:]
     for line in value.components(separatedBy: CharacterSet.newlines) {
         guard let separator = line.firstIndex(of: "=") else { continue }
@@ -48,7 +48,7 @@ public func parseCredential(_ value: String) -> [String: String] {
 
 /// Serialize back to `key[]=value` protocol form (port of `formatCredential`).
 /// Keys are sorted for deterministic output.
-public func formatCredential(_ credential: [String: String]) throws -> String {
+nonisolated public func formatCredential(_ credential: [String: String]) throws -> String {
     var lines: [String] = []
     for key in credential.keys.sorted() {
         guard let value = credential[key] else { continue }
@@ -66,7 +66,7 @@ public func formatCredential(_ credential: [String: String]) throws -> String {
 /// `credential.ts`). `helper` selects the backing store; it defaults to the
 /// macOS keychain. Desktop's GCM trampoline is future work — callers that
 /// need it pass their helper name explicitly.
-public func runCredentialHelper(
+nonisolated public func runCredentialHelper(
     command: String,
     credential: [String: String],
     repositoryPath: String,
@@ -85,7 +85,7 @@ public func runCredentialHelper(
     return parseCredential(result.stdoutString)
 }
 
-public func fillCredential(
+nonisolated public func fillCredential(
     _ credential: [String: String],
     repositoryPath: String,
     helper: String = "osxkeychain"
@@ -95,7 +95,7 @@ public func fillCredential(
         repositoryPath: repositoryPath, helper: helper)
 }
 
-public func approveCredential(
+nonisolated public func approveCredential(
     _ credential: [String: String],
     repositoryPath: String,
     helper: String = "osxkeychain"
@@ -105,7 +105,7 @@ public func approveCredential(
         repositoryPath: repositoryPath, helper: helper)
 }
 
-public func rejectCredential(
+nonisolated public func rejectCredential(
     _ credential: [String: String],
     repositoryPath: String,
     helper: String = "osxkeychain"
@@ -118,7 +118,7 @@ public func rejectCredential(
 // MARK: - Remote-operation environment
 
 /// Non-interactive auth env (port of `envForAuthentication`).
-public func envForAuthentication() -> [String: String] {
+nonisolated public func envForAuthentication() -> [String: String] {
     var env: [String: String] = ["GIT_TERMINAL_PROMPT": "0"]
     if let trace = ProcessInfo.processInfo.environment["GIT_TRACE"] {
         env["GIT_TRACE"] = trace
@@ -130,7 +130,7 @@ public func envForAuthentication() -> [String: String] {
 /// Returns nil when no proxy applies: non-http(s) URLs, an existing
 /// `ALL_PROXY`/`all_proxy`, or an already-configured protocol proxy.
 /// System proxy auto-resolution is deferred (no dependency); explicit env wins.
-public func proxyEnvForRemoteURL(
+nonisolated public func proxyEnvForRemoteURL(
     _ remoteURL: String,
     environment: [String: String] = ProcessInfo.processInfo.environment
 ) -> [String: String]? {
@@ -154,7 +154,7 @@ public func proxyEnvForRemoteURL(
 }
 
 /// Env for fetch/clone/push/pull (port of `envForRemoteOperation`).
-public func envForRemoteOperation(_ remoteURL: String) -> [String: String] {
+nonisolated public func envForRemoteOperation(_ remoteURL: String) -> [String: String] {
     var env = envForAuthentication()
     if let proxy = proxyEnvForRemoteURL(remoteURL) {
         for (key, value) in proxy { env[key] = value }
@@ -167,7 +167,7 @@ public func envForRemoteOperation(_ remoteURL: String) -> [String: String] {
 /// Add `path` to `safe.directory` when missing (port of `addSafeDirectory`).
 /// The Windows UNC `%(prefix)/` rewrite from the reference is macOS-dead code
 /// and omitted.
-public func addSafeDirectory(_ path: String) async throws {
+nonisolated public func addSafeDirectory(_ path: String) async throws {
     let check = try await GitProcess.run(
         ["config", "--global", "-z", "--get-all", "safe.directory", path])
     // Exit 1 (or output lacking the value) means "not present" — add it.
@@ -200,7 +200,7 @@ public struct SyncErrorContext: Sendable, Equatable {
     public var operation: SyncOperationKind
     public var isBackgroundTask: Bool
 
-    public init(
+    nonisolated public init(
         repositoryID: Int,
         remoteURL: String? = nil,
         operation: SyncOperationKind,
@@ -215,7 +215,7 @@ public struct SyncErrorContext: Sendable, Equatable {
 
 /// Errors in the "authentication failed" umbrella (port of
 /// `isAuthFailureError` + `AuthenticationErrors`, pruned to non-GH kinds).
-public func isAuthFailure(_ kind: GitErrorKind?) -> Bool {
+nonisolated public func isAuthFailure(_ kind: GitErrorKind?) -> Bool {
     switch kind {
     case .httpsAuthenticationFailed, .sshAuthenticationFailed, .sshPermissionDenied:
         return true
@@ -225,7 +225,7 @@ public func isAuthFailure(_ kind: GitErrorKind?) -> Bool {
 }
 
 /// `remote: `-prefixed server lines from git stderr (port of `getRemoteMessage`).
-public func remoteMessage(from stderr: String) -> String {
+nonisolated public func remoteMessage(from stderr: String) -> String {
     let needle = "remote: "
     return stderr
         .components(separatedBy: "\n")
@@ -237,7 +237,7 @@ public func remoteMessage(from stderr: String) -> String {
 
 /// Files listed after `error: … files would be overwritten by …:`
 /// (port of `parseFilesToBeOverwritten`).
-public func parseFilesToBeOverwritten(_ errorMessage: String) -> [String] {
+nonisolated public func parseFilesToBeOverwritten(_ errorMessage: String) -> [String] {
     var files: [String] = []
     var inFilesList = false
     for line in errorMessage.components(separatedBy: "\n") {
@@ -258,7 +258,7 @@ public func parseFilesToBeOverwritten(_ errorMessage: String) -> [String] {
 public struct DiscardChangesRetryRequest: Error, Sendable {
     public var repositoryID: Int
 
-    public init(repositoryID: Int) {
+    nonisolated public init(repositoryID: Int) {
         self.repositoryID = repositoryID
     }
 }
@@ -267,7 +267,7 @@ public struct DiscardChangesRetryRequest: Error, Sendable {
 /// Returns nil when no UI applies:
 /// - background auth failures are suppressed (port of `backgroundTaskHandler`);
 /// - merge/rebase/revert conflict errors defer to Tasks 5–6 conflict flows.
-public func popupForSyncError(_ error: GitError, context: SyncErrorContext) -> Popup? {
+nonisolated public func popupForSyncError(_ error: GitError, context: SyncErrorContext) -> Popup? {
     switch error.kind {
     case .pushNotFastForward:
         return .pushNeedsPull(repositoryID: context.repositoryID)
@@ -299,7 +299,7 @@ public func popupForSyncError(_ error: GitError, context: SyncErrorContext) -> P
 }
 
 /// Map any sync-thrown error to a popup (non-git errors become `.error`).
-public func popupForSyncFailure(_ error: Error, context: SyncErrorContext) -> Popup? {
+nonisolated public func popupForSyncFailure(_ error: Error, context: SyncErrorContext) -> Popup? {
     if let retry = error as? DiscardChangesRetryRequest {
         return .discardChangesRetry(repositoryID: retry.repositoryID)
     }
@@ -343,14 +343,14 @@ public struct SSHHostChallenge: Sendable, Equatable {
     public var keyType: String
     public var fingerprint: String
 
-    public init(host: String, ip: String, keyType: String, fingerprint: String) {
+    nonisolated public init(host: String, ip: String, keyType: String, fingerprint: String) {
         self.host = host
         self.ip = ip
         self.keyType = keyType
         self.fingerprint = fingerprint
     }
 
-    public var popup: Popup {
+    nonisolated public var popup: Popup {
         .addSSHHost(host: host, fingerprint: fingerprint)
     }
 }

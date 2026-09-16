@@ -19,7 +19,7 @@ public struct LFSFileProgress: Sendable, Equatable {
     public var size: Int
     public var done: Bool
 
-    public init(transferred: Int, size: Int, done: Bool) {
+    nonisolated public init(transferred: Int, size: Int, done: Bool) {
         self.transferred = transferred
         self.size = size
         self.done = done
@@ -36,14 +36,14 @@ public enum LFSProgressEvent: Sendable, Equatable {
 
 /// Parser for `GIT_LFS_PROGRESS` lines.
 public struct LFSProgressParser: Sendable {
-    private static let linePattern: NSRegularExpression? = try? NSRegularExpression(
+    nonisolated private static let linePattern: NSRegularExpression? = try? NSRegularExpression(
         pattern: #"^(.+?)\s{1}(\d+)\/(\d+)\s{1}(\d+)\/(\d+)\s{1}(.+)$"#)
 
     public var files: [String: LFSFileProgress] = [:]
 
-    public init() {}
+    nonisolated public init() {}
 
-    public mutating func parse(line: String) -> LFSProgressEvent {
+    nonisolated public mutating func parse(line: String) -> LFSProgressEvent {
         guard let regex = Self.linePattern,
               let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
               match.numberOfRanges == 7,
@@ -86,7 +86,7 @@ public struct LFSProgressParser: Sendable {
         return .progress(percent: 0, info: info)
     }
 
-    private static func humanFacingVerb(_ direction: String) -> String {
+    nonisolated private static func humanFacingVerb(_ direction: String) -> String {
         switch direction {
         case "download": return "Downloading"
         case "upload": return "Uploading"
@@ -95,13 +95,13 @@ public struct LFSProgressParser: Sendable {
         }
     }
 
-    private func group(_ match: NSTextCheckingResult, _ index: Int, in line: String) -> String? {
+    nonisolated private func group(_ match: NSTextCheckingResult, _ index: Int, in line: String) -> String? {
         let range = match.range(at: index)
         guard range.location != NSNotFound, let swiftRange = Range(range, in: line) else { return nil }
         return String(line[swiftRange])
     }
 
-    private func intGroup(_ match: NSTextCheckingResult, _ index: Int, in line: String) -> Int? {
+    nonisolated private func intGroup(_ match: NSTextCheckingResult, _ index: Int, in line: String) -> Int? {
         guard let text = group(match, index, in: line) else { return nil }
         return Int(text)
     }
@@ -110,7 +110,7 @@ public struct LFSProgressParser: Sendable {
 /// Format a byte count with IEC units (port of `formatBytes`, legacy branch —
 /// per scope there are no number-format settings, so the system default path
 /// applies; the reference's preference-gated branch is omitted).
-public func formatBytes(_ bytes: Double, decimals: Int = 0) -> String {
+nonisolated public func formatBytes(_ bytes: Double, decimals: Int = 0) -> String {
     let units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"]
     guard bytes.isFinite, bytes > 0 else {
         return bytes == 0 ? "0 B" : "\(bytes)"
@@ -126,7 +126,7 @@ public func formatBytes(_ bytes: Double, decimals: Int = 0) -> String {
 }
 
 /// Round to N decimals (port of `ui/lib/round.ts`).
-public func roundToDecimals(_ value: Double, _ decimals: Int) -> Double {
+nonisolated public func roundToDecimals(_ value: Double, _ decimals: Int) -> Double {
     guard decimals > 0 else { return value.rounded() }
     let factor = pow(10, Double(decimals))
     return ((value + Double.ulpOfOne) * factor).rounded() / factor

@@ -20,7 +20,7 @@ public enum TutorialStep: String, Codable, Sendable {
     case announced = "Announced"
 }
 
-public func isValidTutorialStep(_ step: TutorialStep) -> Bool {
+nonisolated public func isValidTutorialStep(_ step: TutorialStep) -> Bool {
     step != .notApplicable && step != .paused
 }
 

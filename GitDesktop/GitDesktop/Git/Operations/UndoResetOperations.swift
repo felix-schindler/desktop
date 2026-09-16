@@ -13,7 +13,7 @@ public enum GitResetMode: Int, Sendable, Equatable, CaseIterable {
     case soft = 1
     case mixed = 2
 
-    public var displayName: String {
+    nonisolated public var displayName: String {
         switch self {
         case .hard: return "Hard"
         case .soft: return "Soft"
@@ -21,7 +21,7 @@ public enum GitResetMode: Int, Sendable, Equatable, CaseIterable {
         }
     }
 
-    public var explanation: String {
+    nonisolated public var explanation: String {
         switch self {
         case .hard:
             return "Discards all changes to tracked files. Uncommitted work will be lost."
@@ -36,7 +36,7 @@ public enum GitResetMode: Int, Sendable, Equatable, CaseIterable {
 public enum UndoResetOperations {
     // MARK: Reset args
 
-    public static func resetArgs(mode: GitResetMode, ref: String) -> [String] {
+    nonisolated public static func resetArgs(mode: GitResetMode, ref: String) -> [String] {
         switch mode {
         case .hard: return ["reset", "--hard", ref]
         case .soft: return ["reset", "--soft", ref]
@@ -44,22 +44,22 @@ public enum UndoResetOperations {
         }
     }
 
-    public static func resetPathsArgs(mode: GitResetMode, ref: String, paths: [String]) -> [String] {
+    nonisolated public static func resetPathsArgs(mode: GitResetMode, ref: String, paths: [String]) -> [String] {
         resetArgs(mode: mode, ref: ref) + ["--"] + paths
     }
 
-    public static func unstageAllArgs() -> [String] {
+    nonisolated public static func unstageAllArgs() -> [String] {
         ["reset", "--", "."]
     }
 
-    public static func deleteRefArgs(ref: String) -> [String] {
+    nonisolated public static func deleteRefArgs(ref: String) -> [String] {
         ["update-ref", "-d", ref]
     }
 
     // MARK: Revert args
 
     /// Port of `revertCommit`: merge commits need `-m 1`.
-    public static func revertArgs(sha: String, parentCount: Int) -> [String] {
+    nonisolated public static func revertArgs(sha: String, parentCount: Int) -> [String] {
         var args = ["revert"]
         if parentCount > 1 { args += ["-m", "1"] }
         args.append(sha)
@@ -69,7 +69,7 @@ public enum UndoResetOperations {
     // MARK: Checkout args
 
     /// Detached checkout of a commit: literally `git checkout <sha>`.
-    public static func checkoutCommitArgs(sha: String, progress: Bool = false) -> [String] {
+    nonisolated public static func checkoutCommitArgs(sha: String, progress: Bool = false) -> [String] {
         var args = ["checkout"]
         if progress { args.append("--progress") }
         args.append(sha)
@@ -77,7 +77,7 @@ public enum UndoResetOperations {
     }
 
     /// Branch checkout, creating a local branch from a remote when needed.
-    public static func checkoutBranchArgs(branchName: String, isRemote: Bool) -> [String] {
+    nonisolated public static func checkoutBranchArgs(branchName: String, isRemote: Bool) -> [String] {
         var args = ["checkout", branchName]
         if isRemote {
             let short = branchName.split(separator: "/").dropFirst().joined(separator: "/")
@@ -87,7 +87,7 @@ public enum UndoResetOperations {
         return args
     }
 
-    public static func checkoutPathsArgs(paths: [String]) -> [String] {
+    nonisolated public static func checkoutPathsArgs(paths: [String]) -> [String] {
         ["checkout", "HEAD", "--"] + paths
     }
 
@@ -96,27 +96,27 @@ public enum UndoResetOperations {
     /// Undo is only offered for the most recent *local* commit: it must have
     /// no tags and (in the full app) no push record. The SHA-level guard we
     /// can check locally is "commit is the branch tip".
-    public static func canUndoCommit(commitSha: String, tipSha: String?, tags: [String]) -> Bool {
+    nonisolated public static func canUndoCommit(commitSha: String, tipSha: String?, tags: [String]) -> Bool {
         guard let tipSha, commitSha == tipSha else { return false }
         return tags.isEmpty
     }
 
     /// Whether undo needs the "local changes will be lost" confirm: any dirty
     /// working directory, or (for merges) always warn with merge-specific text.
-    public static func needsUndoWarning(isWorkingDirectoryClean: Bool, isMergeCommit: Bool) -> Bool {
+    nonisolated public static func needsUndoWarning(isWorkingDirectoryClean: Bool, isMergeCommit: Bool) -> Bool {
         if isMergeCommit { return true }
         return !isWorkingDirectoryClean
     }
 
     /// Whether reset needs the "you have changes in progress" confirm.
-    public static func needsResetWarning(isWorkingDirectoryClean: Bool) -> Bool {
+    nonisolated public static func needsResetWarning(isWorkingDirectoryClean: Bool) -> Bool {
         !isWorkingDirectoryClean
     }
 
     // MARK: Amend
 
     /// Args for an amend commit via `git commit -F - --amend …` (message on stdin).
-    public static func amendArgs(noVerify: Bool, signoff: Bool, allowEmpty: Bool) -> [String] {
+    nonisolated public static func amendArgs(noVerify: Bool, signoff: Bool, allowEmpty: Bool) -> [String] {
         var args = ["commit", "-F", "-"]
         args.append("--amend")
         if noVerify { args.append("--no-verify") }
@@ -131,23 +131,23 @@ public enum UndoResetOperations {
 /// only while HEAD still matches the amend target and no conflict flow runs).
 public struct AmendState: Sendable, Equatable {
     public var commitToAmend: Commit?
-    public var isAmending: Bool { commitToAmend != nil }
+    nonisolated public var isAmending: Bool { commitToAmend != nil }
 
-    public init(commitToAmend: Commit? = nil) {
+    nonisolated public init(commitToAmend: Commit? = nil) {
         self.commitToAmend = commitToAmend
     }
 
-    public mutating func startAmending(_ commit: Commit) {
+    nonisolated public mutating func startAmending(_ commit: Commit) {
         commitToAmend = commit
     }
 
-    public mutating func stopAmending() {
+    nonisolated public mutating func stopAmending() {
         commitToAmend = nil
     }
 
     /// Keep amending only when HEAD still matches the target and no merge/
     /// rebase/cherry-pick flow is active (mirrors `repository-state-cache.ts`).
-    public func keptAfterRefresh(headSha: String?, hasConflicts: Bool) -> AmendState {
+    nonisolated public func keptAfterRefresh(headSha: String?, hasConflicts: Bool) -> AmendState {
         guard let target = commitToAmend, !hasConflicts else { return AmendState() }
         guard let headSha, headSha == target.sha else { return AmendState() }
         return self
@@ -158,7 +158,7 @@ public enum UndoResetLiveOperations {
     /// Port of `GitStore.undoCommit`: first commit deletes HEAD, otherwise
     /// `git reset <parent>` (mixed). Restores deleted paths first so a first-
     /// commit undo leaves working files behind as untracked.
-    public static func undoCommit(repositoryPath: String, commit: Commit) async throws {
+    nonisolated public static func undoCommit(repositoryPath: String, commit: Commit) async throws {
         if commit.parentSHAs.isEmpty {
             // Restore deleted files so they survive the ref deletion.
             let status = try await LiveStatusSnapshot.workingDirectory(repositoryPath: repositoryPath)
@@ -187,25 +187,25 @@ public enum UndoResetLiveOperations {
         }
     }
 
-    public static func reset(repositoryPath: String, mode: GitResetMode, ref: String) async throws {
+    nonisolated public static func reset(repositoryPath: String, mode: GitResetMode, ref: String) async throws {
         let args = UndoResetOperations.resetArgs(mode: mode, ref: ref)
         let result = try await GitProcess.run(args, workingDirectory: repositoryPath)
         if let error = classifyGitResult(result, args: args, successExitCodes: [0]) { throw error }
     }
 
-    public static func revert(repositoryPath: String, sha: String, parentCount: Int) async throws {
+    nonisolated public static func revert(repositoryPath: String, sha: String, parentCount: Int) async throws {
         let args = UndoResetOperations.revertArgs(sha: sha, parentCount: parentCount)
         let result = try await GitProcess.run(args, workingDirectory: repositoryPath)
         if let error = classifyGitResult(result, args: args, successExitCodes: [0]) { throw error }
     }
 
-    public static func checkoutCommit(repositoryPath: String, sha: String) async throws {
+    nonisolated public static func checkoutCommit(repositoryPath: String, sha: String) async throws {
         let args = UndoResetOperations.checkoutCommitArgs(sha: sha)
         let result = try await GitProcess.run(args, workingDirectory: repositoryPath)
         if let error = classifyGitResult(result, args: args, successExitCodes: [0]) { throw error }
     }
 
-    public static func updateSubmodulesAfterCheckout(repositoryPath: String, allowFileProtocol: Bool = false) async throws {
+    nonisolated public static func updateSubmodulesAfterCheckout(repositoryPath: String, allowFileProtocol: Bool = false) async throws {
         try await SubmoduleLFSLiveOperations.updateSubmodules(
             repositoryPath: repositoryPath, allowFileProtocol: allowFileProtocol)
     }
@@ -213,7 +213,7 @@ public enum UndoResetLiveOperations {
 
 /// Minimal status snapshot for undo-first-commit (avoids a GitStore dependency).
 enum LiveStatusSnapshot {
-    static func workingDirectory(repositoryPath: String) async throws -> WorkingDirectoryStatus {
+    nonisolated static func workingDirectory(repositoryPath: String) async throws -> WorkingDirectoryStatus {
         let args = ["--no-optional-locks", "status", "--untracked-files=all", "--branch", "--porcelain=2", "-z"]
         let result = try await GitProcess.run(args, workingDirectory: repositoryPath)
         if result.exitCode == 128 { return WorkingDirectoryStatus(files: []) }

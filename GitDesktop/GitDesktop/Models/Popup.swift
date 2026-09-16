@@ -137,7 +137,7 @@ public enum Popup: Sendable, Equatable, Identifiable {
     case deleteWorktreeFailed(repositoryID: Int, worktreePath: String, message: String)
     case merge(repositoryID: Int)
 
-    public var type: PopupType {
+    nonisolated public var type: PopupType {
         switch self {
         case .renameBranch: return .renameBranch
         case .deleteBranch: return .deleteBranch
@@ -206,7 +206,7 @@ public enum Popup: Sendable, Equatable, Identifiable {
 
     /// Stable identity for sheet presentation. Error popups stack (they are
     /// never deduped); all other types have one instance per type.
-    public var id: String {
+    nonisolated public var id: String {
         switch self {
         case .error(let message): return "error-\(abs(message.hashValue))"
         default: return "popup-\(type.rawValue)"

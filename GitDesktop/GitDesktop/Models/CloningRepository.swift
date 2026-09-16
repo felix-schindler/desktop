@@ -15,11 +15,11 @@ public struct CloningRepository: Sendable, Equatable, Identifiable {
         self.url = url
     }
 
-    public var name: String {
+    nonisolated public var name: String {
         var base = (url as NSString).lastPathComponent
         if base.hasSuffix(".git") { base = String(base.dropLast(4)) }
         return base
     }
 
-    public var hash: String { "\(id)+\(path)+\(url)" }
+    nonisolated public var hash: String { "\(id)+\(path)+\(url)" }
 }

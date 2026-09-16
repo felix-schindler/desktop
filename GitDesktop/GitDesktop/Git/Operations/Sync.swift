@@ -24,12 +24,12 @@ import Foundation
 // MARK: - Pure arg builders
 
 /// `git -c rebase.backend=merge` prefix (port of `gitRebaseArguments`).
-public func rebaseBackendArgs() -> [String] {
+nonisolated public func rebaseBackendArgs() -> [String] {
     ["-c", "rebase.backend=merge"]
 }
 
 /// `fetch --prune --recurse-submodules=on-demand <remote>` (+ `--progress`).
-public func fetchArgs(remoteName: String, withProgress: Bool) -> [String] {
+nonisolated public func fetchArgs(remoteName: String, withProgress: Bool) -> [String] {
     ["fetch"]
         + (withProgress ? ["--progress"] : [])
         + ["--prune", "--recurse-submodules=on-demand", remoteName]
@@ -38,7 +38,7 @@ public func fetchArgs(remoteName: String, withProgress: Bool) -> [String] {
 /// Pull args. `pullFFConfigured == false` (no `pull.ff` in config) adds
 /// `--ff`; a failed config read passes `true` (no flag), mirroring the
 /// reference's catch path.
-public func pullArgs(remoteName: String, withProgress: Bool, noVerify: Bool, pullFFConfigured: Bool) -> [String] {
+nonisolated public func pullArgs(remoteName: String, withProgress: Bool, noVerify: Bool, pullFFConfigured: Bool) -> [String] {
     rebaseBackendArgs()
         + ["pull"]
         + (pullFFConfigured ? [] : ["--ff"])
@@ -50,7 +50,7 @@ public func pullArgs(remoteName: String, withProgress: Bool, noVerify: Bool, pul
 
 /// Push args. A nil `remoteBranch` pushes the current branch with
 /// `--set-upstream`; otherwise `--force-with-lease` applies when requested.
-public func pushArgs(
+nonisolated public func pushArgs(
     remoteName: String,
     localBranch: String,
     remoteBranch: String?,
@@ -77,11 +77,11 @@ public func pushArgs(
 
 // MARK: - Pure output parsers
 
-private let remoteLinePattern: NSRegularExpression? = try? NSRegularExpression(
+nonisolated private let remoteLinePattern: NSRegularExpression? = try? NSRegularExpression(
     pattern: #"^(.+)\t(.+)\s\(fetch\)$"#)
 
 /// Parse `git remote -v` stdout (fetch lines only, port of `getRemotes`).
-public func parseRemotes(_ stdout: String) -> [Remote] {
+nonisolated public func parseRemotes(_ stdout: String) -> [Remote] {
     var remotes: [Remote] = []
     for rawLine in stdout.components(separatedBy: "\n") {
         let line = rawLine.hasSuffix("\r") ? String(rawLine.dropLast()) : rawLine
@@ -98,7 +98,7 @@ public func parseRemotes(_ stdout: String) -> [Remote] {
 
 /// Parse `git push --follow-tags --dry-run --porcelain` stdout into unpushed
 /// tag names (port of `fetchTagsToPush`).
-public func parseTagsToPush(_ stdout: String) -> [String] {
+nonisolated public func parseTagsToPush(_ stdout: String) -> [String] {
     let lines = stdout.components(separatedBy: "\n")
     var tags: [String] = []
     var index = 1
@@ -117,7 +117,7 @@ public func parseTagsToPush(_ stdout: String) -> [String] {
 
 /// Split buffered stderr into progress segments on CR/LF (git overwrites
 /// progress lines with `\r`; see `progress.c`).
-public func progressLines(from stderr: String) -> [String] {
+nonisolated public func progressLines(from stderr: String) -> [String] {
     stderr
         .components(separatedBy: CharacterSet(charactersIn: "\r\n"))
         .filter { !$0.isEmpty }
@@ -126,14 +126,14 @@ public func progressLines(from stderr: String) -> [String] {
 /// Whether a stderr line describes the LFS smudge filter rather than the
 /// fetch/push itself. Such lines are skipped during replay; live streaming
 /// (future work) will restore the reference's active-flag suppression.
-public func isLFSFilterLine(_ line: String) -> Bool {
+nonisolated public func isLFSFilterLine(_ line: String) -> Bool {
     parseGitProgressLine(stripANSIControlCharacters(line))?.title == "Filtering content"
 }
 
 // MARK: - Config helper
 
 /// Read `git config -z <name>`; nil when unset (exit 1).
-public func gitConfigValue(repositoryPath: String, name: String) async throws -> String? {
+nonisolated public func gitConfigValue(repositoryPath: String, name: String) async throws -> String? {
     let result = try await GitProcess.run(["config", "-z", name], workingDirectory: repositoryPath)
     if result.exitCode == 1 { return nil }
     if let error = classifyGitResult(result, args: ["config", name], successExitCodes: [0]) {
@@ -145,7 +145,7 @@ public func gitConfigValue(repositoryPath: String, name: String) async throws ->
 
 // MARK: - Remote CRUD
 
-public func listRemotes(repositoryPath: String) async throws -> [Remote] {
+nonisolated public func listRemotes(repositoryPath: String) async throws -> [Remote] {
     let result = try await GitProcess.run(["remote", "-v"], workingDirectory: repositoryPath)
     if result.exitCode == 128, parseGitError(result.stderrString) == .notAGitRepository {
         return []
@@ -156,7 +156,7 @@ public func listRemotes(repositoryPath: String) async throws -> [Remote] {
     return parseRemotes(result.stdoutString)
 }
 
-public func addRemote(repositoryPath: String, name: String, url: String) async throws -> Remote {
+nonisolated public func addRemote(repositoryPath: String, name: String, url: String) async throws -> Remote {
     let args = ["remote", "add", name, url]
     let result = try await GitProcess.run(args, workingDirectory: repositoryPath)
     if let error = classifyGitResult(result, args: args) {
@@ -165,7 +165,7 @@ public func addRemote(repositoryPath: String, name: String, url: String) async t
     return Remote(name: name, url: url)
 }
 
-public func removeRemote(repositoryPath: String, name: String) async throws {
+nonisolated public func removeRemote(repositoryPath: String, name: String) async throws {
     let args = ["remote", "remove", name]
     let result = try await GitProcess.run(args, workingDirectory: repositoryPath)
     if let error = classifyGitResult(result, args: args, successExitCodes: [0, 2, 128]) {
@@ -173,7 +173,7 @@ public func removeRemote(repositoryPath: String, name: String) async throws {
     }
 }
 
-public func setRemoteURL(repositoryPath: String, name: String, url: String) async throws {
+nonisolated public func setRemoteURL(repositoryPath: String, name: String, url: String) async throws {
     let args = ["remote", "set-url", name, url]
     let result = try await GitProcess.run(args, workingDirectory: repositoryPath)
     if let error = classifyGitResult(result, args: args) {
@@ -181,7 +181,7 @@ public func setRemoteURL(repositoryPath: String, name: String, url: String) asyn
     }
 }
 
-public func getRemoteURL(repositoryPath: String, name: String) async throws -> String? {
+nonisolated public func getRemoteURL(repositoryPath: String, name: String) async throws -> String? {
     let args = ["remote", "get-url", name]
     let result = try await GitProcess.run(args, workingDirectory: repositoryPath)
     if result.exitCode != 0 {
@@ -195,7 +195,7 @@ public func getRemoteURL(repositoryPath: String, name: String) async throws -> S
 }
 
 /// `remote set-head -a` (exits 0/1/128 all acceptable, port of `updateRemoteHEAD`).
-public func updateRemoteHEAD(repositoryPath: String, remote: Remote, isBackgroundTask: Bool) async throws {
+nonisolated public func updateRemoteHEAD(repositoryPath: String, remote: Remote, isBackgroundTask: Bool) async throws {
     _ = isBackgroundTask
     let args = ["remote", "set-head", "-a", remote.name]
     let result = try await GitProcess.run(
@@ -210,7 +210,7 @@ public func updateRemoteHEAD(repositoryPath: String, remote: Remote, isBackgroun
 
 public typealias SyncProgressCallback = @Sendable (AppProgress) -> Void
 
-public func fetchRemote(
+nonisolated public func fetchRemote(
     repositoryPath: String,
     remote: Remote,
     progress: SyncProgressCallback? = nil,
@@ -247,7 +247,7 @@ public func fetchRemote(
 }
 
 /// Fetch one refspec (exits 0/128 acceptable, port of `fetchRefspec`).
-public func fetchRefspec(repositoryPath: String, remote: Remote, refspec: String) async throws {
+nonisolated public func fetchRefspec(repositoryPath: String, remote: Remote, refspec: String) async throws {
     let args = ["fetch", remote.name, refspec]
     let result = try await GitProcess.run(
         args, workingDirectory: repositoryPath,
@@ -259,7 +259,7 @@ public func fetchRefspec(repositoryPath: String, remote: Remote, refspec: String
 
 /// Fast-forward local tracking branches (port of `fastForwardBranches`).
 /// `refPairs` are `"<upstreamRef>:<ref>"` strings fed via `--stdin`.
-public func fastForwardBranches(repositoryPath: String, refPairs: [String]) async throws {
+nonisolated public func fastForwardBranches(repositoryPath: String, refPairs: [String]) async throws {
     guard !refPairs.isEmpty else { return }
     let args = ["fetch", ".", "--show-forced-updates", "--no-write-fetch-head", "--stdin"]
     let result = try await GitProcess.run(
@@ -271,7 +271,7 @@ public func fastForwardBranches(repositoryPath: String, refPairs: [String]) asyn
     }
 }
 
-public func pullRepository(
+nonisolated public func pullRepository(
     repositoryPath: String,
     remote: Remote,
     progress: SyncProgressCallback? = nil,
@@ -311,7 +311,7 @@ public func pullRepository(
     }
 }
 
-public func pushRepository(
+nonisolated public func pushRepository(
     repositoryPath: String,
     remote: Remote,
     localBranch: String,
@@ -348,7 +348,7 @@ public func pushRepository(
 }
 
 /// Tags `--follow-tags` would push (port of `fetchTagsToPush`).
-public func fetchTagsToPush(repositoryPath: String, remote: Remote, branchName: String) async throws -> [String] {
+nonisolated public func fetchTagsToPush(repositoryPath: String, remote: Remote, branchName: String) async throws -> [String] {
     let args = ["push", remote.name, branchName, "--follow-tags", "--dry-run", "--no-verify", "--porcelain"]
     let result = try await GitProcess.run(
         args, workingDirectory: repositoryPath,
@@ -397,24 +397,22 @@ public struct AheadBehindBadge: Sendable, Equatable {
     /// Down count (`behind`), formatted, when > 0.
     public var down: String?
 
-    public init(up: String? = nil, down: String? = nil) {
+    nonisolated public init(up: String? = nil, down: String? = nil) {
         self.up = up
         self.down = down
     }
 }
 
-private let badgeNumberFormatter: NumberFormatter = {
-    let formatter = NumberFormatter()
-    formatter.numberStyle = .decimal
-    return formatter
-}()
-
 /// Port of `renderAheadBehind`. Nil when there is nothing to show.
-public func aheadBehindBadge(ahead: Int, behind: Int, tagsToPush: Int) -> AheadBehindBadge? {
+nonisolated public func aheadBehindBadge(ahead: Int, behind: Int, tagsToPush: Int) -> AheadBehindBadge? {
     let upCount = ahead + tagsToPush
     guard upCount > 0 || behind > 0 else { return nil }
     func format(_ value: Int) -> String {
-        badgeNumberFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
+        // Local formatter per call: NumberFormatter is not thread-safe,
+        // so a shared global would race under Swift 6 nonisolated use.
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
     return AheadBehindBadge(
         up: upCount > 0 ? format(upCount) : nil,
@@ -422,7 +420,7 @@ public func aheadBehindBadge(ahead: Int, behind: Int, tagsToPush: Int) -> AheadB
 }
 
 /// Port of `renderLastFetched` (system formatters only, per scope).
-public func lastFetchedDescription(_ date: Date?) -> String {
+nonisolated public func lastFetchedDescription(_ date: Date?) -> String {
     guard let date else { return "Never fetched" }
     let formatter = RelativeDateTimeFormatter()
     return "Last fetched \(formatter.localizedString(for: date, relativeTo: Date()))"
@@ -439,7 +437,7 @@ public struct PushPullState: Sendable, Equatable {
     public var showsProgress: Bool
     public var progressValue: Double?
 
-    public init(
+    nonisolated public init(
         action: PushPullAction,
         title: String,
         description: String,
@@ -461,7 +459,7 @@ public struct PushPullState: Sendable, Equatable {
 }
 
 /// Resolve the button state (port of `renderButton`).
-public func resolvePushPullState(
+nonisolated public func resolvePushPullState(
     tip: Tip,
     remoteName: String?,
     aheadBehind: AheadBehind?,
@@ -565,11 +563,11 @@ public func resolvePushPullState(
 /// separate refined protocol — rather than new `GitService` requirements —
 /// keeps parallel tasks compiling against the Task 1 contract.)
 public protocol SyncOperations: GitService {
-    func fetch(remote: Remote, progress: SyncProgressCallback?, isBackgroundTask: Bool) async throws
-    func fetchRefspec(remote: Remote, refspec: String) async throws
-    func fastForwardBranches(refPairs: [String]) async throws
-    func pull(remote: Remote, progress: SyncProgressCallback?, noVerify: Bool) async throws
-    func push(
+    nonisolated func fetch(remote: Remote, progress: SyncProgressCallback?, isBackgroundTask: Bool) async throws
+    nonisolated func fetchRefspec(remote: Remote, refspec: String) async throws
+    nonisolated func fastForwardBranches(refPairs: [String]) async throws
+    nonisolated func pull(remote: Remote, progress: SyncProgressCallback?, noVerify: Bool) async throws
+    nonisolated func push(
         remote: Remote,
         localBranch: String,
         remoteBranch: String?,
@@ -578,36 +576,36 @@ public protocol SyncOperations: GitService {
         noVerify: Bool,
         progress: SyncProgressCallback?
     ) async throws
-    func fetchTagsToPush(remote: Remote, branchName: String) async throws -> [String]
-    func getRemoteURL(name: String) async throws -> String?
-    func addRemote(name: String, url: String) async throws -> Remote
-    func removeRemote(name: String) async throws
-    func setRemoteURL(name: String, url: String) async throws
-    func updateRemoteHEAD(remote: Remote, isBackgroundTask: Bool) async throws
+    nonisolated func fetchTagsToPush(remote: Remote, branchName: String) async throws -> [String]
+    nonisolated func getRemoteURL(name: String) async throws -> String?
+    nonisolated func addRemote(name: String, url: String) async throws -> Remote
+    nonisolated func removeRemote(name: String) async throws
+    nonisolated func setRemoteURL(name: String, url: String) async throws
+    nonisolated func updateRemoteHEAD(remote: Remote, isBackgroundTask: Bool) async throws
 }
 
 extension LiveGitService: SyncOperations {
-    public func fetch(remote: Remote, progress: SyncProgressCallback? = nil, isBackgroundTask: Bool = false) async throws {
+    nonisolated public func fetch(remote: Remote, progress: SyncProgressCallback? = nil, isBackgroundTask: Bool = false) async throws {
         try await fetchRemote(
             repositoryPath: repositoryPath, remote: remote,
             progress: progress, isBackgroundTask: isBackgroundTask)
     }
 
-    public func fetchRefspec(remote: Remote, refspec: String) async throws {
+    nonisolated public func fetchRefspec(remote: Remote, refspec: String) async throws {
         try await GitDesktop.fetchRefspec(repositoryPath: repositoryPath, remote: remote, refspec: refspec)
     }
 
-    public func fastForwardBranches(refPairs: [String]) async throws {
+    nonisolated public func fastForwardBranches(refPairs: [String]) async throws {
         try await GitDesktop.fastForwardBranches(repositoryPath: repositoryPath, refPairs: refPairs)
     }
 
-    public func pull(remote: Remote, progress: SyncProgressCallback? = nil, noVerify: Bool = false) async throws {
+    nonisolated public func pull(remote: Remote, progress: SyncProgressCallback? = nil, noVerify: Bool = false) async throws {
         try await pullRepository(
             repositoryPath: repositoryPath, remote: remote,
             progress: progress, noVerify: noVerify)
     }
 
-    public func push(
+    nonisolated public func push(
         remote: Remote,
         localBranch: String,
         remoteBranch: String?,
@@ -623,34 +621,34 @@ extension LiveGitService: SyncOperations {
             noVerify: noVerify, progress: progress)
     }
 
-    public func fetchTagsToPush(remote: Remote, branchName: String) async throws -> [String] {
+    nonisolated public func fetchTagsToPush(remote: Remote, branchName: String) async throws -> [String] {
         try await GitDesktop.fetchTagsToPush(repositoryPath: repositoryPath, remote: remote, branchName: branchName)
     }
 
-    public func getRemoteURL(name: String) async throws -> String? {
+    nonisolated public func getRemoteURL(name: String) async throws -> String? {
         try await GitDesktop.getRemoteURL(repositoryPath: repositoryPath, name: name)
     }
 
-    public func addRemote(name: String, url: String) async throws -> Remote {
+    nonisolated public func addRemote(name: String, url: String) async throws -> Remote {
         try await GitDesktop.addRemote(repositoryPath: repositoryPath, name: name, url: url)
     }
 
-    public func removeRemote(name: String) async throws {
+    nonisolated public func removeRemote(name: String) async throws {
         try await GitDesktop.removeRemote(repositoryPath: repositoryPath, name: name)
     }
 
-    public func setRemoteURL(name: String, url: String) async throws {
+    nonisolated public func setRemoteURL(name: String, url: String) async throws {
         try await GitDesktop.setRemoteURL(repositoryPath: repositoryPath, name: name, url: url)
     }
 
-    public func updateRemoteHEAD(remote: Remote, isBackgroundTask: Bool = false) async throws {
+    nonisolated public func updateRemoteHEAD(remote: Remote, isBackgroundTask: Bool = false) async throws {
         try await GitDesktop.updateRemoteHEAD(
             repositoryPath: repositoryPath, remote: remote, isBackgroundTask: isBackgroundTask)
     }
 }
 
 extension MockGitService: SyncOperations {
-    public func fetch(remote: Remote, progress: SyncProgressCallback?, isBackgroundTask: Bool) async throws {
+    nonisolated public func fetch(remote: Remote, progress: SyncProgressCallback?, isBackgroundTask: Bool) async throws {
         if let failure = syncFailure { throw failure }
         fetchedRemotes.append(remote.name)
         if let progress {
@@ -659,11 +657,11 @@ extension MockGitService: SyncOperations {
         }
     }
 
-    public func fetchRefspec(remote: Remote, refspec: String) async throws {}
+    nonisolated public func fetchRefspec(remote: Remote, refspec: String) async throws {}
 
-    public func fastForwardBranches(refPairs: [String]) async throws {}
+    nonisolated public func fastForwardBranches(refPairs: [String]) async throws {}
 
-    public func pull(remote: Remote, progress: SyncProgressCallback?, noVerify: Bool) async throws {
+    nonisolated public func pull(remote: Remote, progress: SyncProgressCallback?, noVerify: Bool) async throws {
         if let failure = syncFailure { throw failure }
         pulledRemotes.append(remote.name)
         if let progress {
@@ -672,7 +670,7 @@ extension MockGitService: SyncOperations {
         }
     }
 
-    public func push(
+    nonisolated public func push(
         remote: Remote,
         localBranch: String,
         remoteBranch: String?,
@@ -689,29 +687,29 @@ extension MockGitService: SyncOperations {
         }
     }
 
-    public func fetchTagsToPush(remote: Remote, branchName: String) async throws -> [String] {
+    nonisolated public func fetchTagsToPush(remote: Remote, branchName: String) async throws -> [String] {
         []
     }
 
-    public func getRemoteURL(name: String) async throws -> String? {
+    nonisolated public func getRemoteURL(name: String) async throws -> String? {
         stubRemotes.first { $0.name == name }?.url
     }
 
-    public func addRemote(name: String, url: String) async throws -> Remote {
+    nonisolated public func addRemote(name: String, url: String) async throws -> Remote {
         let remote = Remote(name: name, url: url)
         stubRemotes.append(remote)
         return remote
     }
 
-    public func removeRemote(name: String) async throws {
+    nonisolated public func removeRemote(name: String) async throws {
         stubRemotes.removeAll { $0.name == name }
     }
 
-    public func setRemoteURL(name: String, url: String) async throws {
+    nonisolated public func setRemoteURL(name: String, url: String) async throws {
         if let index = stubRemotes.firstIndex(where: { $0.name == name }) {
             stubRemotes[index] = Remote(name: name, url: url)
         }
     }
 
-    public func updateRemoteHEAD(remote: Remote, isBackgroundTask: Bool) async throws {}
+    nonisolated public func updateRemoteHEAD(remote: Remote, isBackgroundTask: Bool) async throws {}
 }

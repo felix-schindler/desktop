@@ -12,12 +12,12 @@ public struct WorktreeEntry: Sendable, Equatable, Identifiable {
     public var head: String
     /// Full ref name (e.g. `refs/heads/main`), nil when HEAD is detached.
     public var branch: String?
-    public var isDetached: Bool { branch == nil }
+    nonisolated public var isDetached: Bool { branch == nil }
     public var type: WorktreeType
     public var isLocked: Bool
     public var isPrunable: Bool
 
-    public init(
+    nonisolated public init(
         path: String,
         head: String,
         branch: String?,
@@ -33,14 +33,14 @@ public struct WorktreeEntry: Sendable, Equatable, Identifiable {
         self.isPrunable = isPrunable
     }
 
-    public var id: String { path }
+    nonisolated public var id: String { path }
 }
 
-public func worktreeDisplayName(_ worktree: WorktreeEntry) -> String {
+nonisolated public func worktreeDisplayName(_ worktree: WorktreeEntry) -> String {
     (worktree.path as NSString).lastPathComponent
 }
 
-public func worktreeDescription(_ worktree: WorktreeEntry) -> String {
+nonisolated public func worktreeDescription(_ worktree: WorktreeEntry) -> String {
     if let branch = worktree.branch {
         return branch.replacingOccurrences(of: #"^refs/heads/"#, with: "", options: .regularExpression)
     }

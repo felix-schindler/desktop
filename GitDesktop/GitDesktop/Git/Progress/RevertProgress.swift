@@ -13,21 +13,21 @@ import Foundation
 
 public struct RevertProgressParser: Sendable {
     /// Reference step table, kept for parity (never matches; see note above).
-    public static let steps = [
+    nonisolated public static let steps = [
         GitProgressStep(title: "", weight: 0),
     ]
 
-    public init() {}
+    nonisolated public init() {}
 
-    public var title: String { "Reverting…" }
+    nonisolated public var title: String { "Reverting…" }
 
-    public var initialProgress: AppProgress {
+    nonisolated public var initialProgress: AppProgress {
         .revert(ProgressPayload(value: 0, title: title))
     }
 
     /// Parse one stderr line. Always returns a 0-valued event carrying the
     /// raw line as the description (mirrors the all-context behavior).
-    public func parse(line: String) -> AppProgress {
+    nonisolated public func parse(line: String) -> AppProgress {
         let text = stripANSIControlCharacters(line)
         return .revert(ProgressPayload(value: 0, title: title, description: text))
     }

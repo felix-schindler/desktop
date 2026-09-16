@@ -95,7 +95,7 @@ public extension AppStore {
     /// return the operation result. Failures post `.error` (or route to
     /// Missing when the repo vanished) and return nil — never throw to views.
     @discardableResult
-    func performPipelineMutation<T>(
+    func performPipelineMutation<T: Sendable>(
         for repository: Repository,
         historyLimit: Int = 100,
         work: @Sendable (any GitService) async throws -> T

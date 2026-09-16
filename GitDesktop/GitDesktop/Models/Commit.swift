@@ -5,13 +5,13 @@ public struct GitAuthor: Sendable, Equatable, Hashable {
     public var name: String
     public var email: String
 
-    public init(name: String, email: String) {
+    nonisolated public init(name: String, email: String) {
         self.name = name
         self.email = email
     }
 
     /// Parses `"Name <email>"`. Returns nil when the pattern does not match.
-    public static func parse(_ nameAddr: String) -> GitAuthor? {
+    nonisolated public static func parse(_ nameAddr: String) -> GitAuthor? {
         guard let lt = nameAddr.firstIndex(of: "<"),
               let gt = nameAddr[lt...].firstIndex(of: ">"),
               gt > nameAddr.index(after: lt)
@@ -21,7 +21,7 @@ public struct GitAuthor: Sendable, Equatable, Hashable {
         return GitAuthor(name: name, email: email)
     }
 
-    public var description: String { "\(name) <\(email)>" }
+    nonisolated public var description: String { "\(name) <\(email)>" }
 }
 
 /// A name/email/date tuple for a commit author or committer.
@@ -33,7 +33,7 @@ public struct CommitIdentity: Sendable, Equatable, Hashable {
     /// Timezone offset in minutes east of UTC (parsed from `--date=raw`).
     public var tzOffset: Int
 
-    public init(name: String, email: String, date: Date, tzOffset: Int = 0) {
+    nonisolated public init(name: String, email: String, date: Date, tzOffset: Int = 0) {
         self.name = name
         self.email = email
         self.date = date
@@ -47,7 +47,7 @@ public struct CommitIdentity: Sendable, Equatable, Hashable {
 
     /// Parses a raw git ident string: `NAME <EMAIL> UNIX_TS ±HHMM`.
     /// Mirrors `CommitIdentity.parseIdentity` (fmt_ident / `--date=raw`).
-    public static func parseIdentity(_ identity: String) throws -> CommitIdentity {
+    nonisolated public static func parseIdentity(_ identity: String) throws -> CommitIdentity {
         // ^(.*?) <(.*?)> (\d+) (\+|-)?(\d{2})(\d{2})
         let pattern = #"^(.*?) <(.*?)> (\d+) (\+|-)?(\d{2})(\d{2})"#
         guard let regex = try? NSRegularExpression(pattern: pattern),
@@ -59,7 +59,7 @@ public struct CommitIdentity: Sendable, Equatable, Hashable {
         else {
             throw ParseError.invalidFormat(identity)
         }
-        func group(_ i: Int) -> String? {
+        nonisolated func group(_ i: Int) -> String? {
             let r = match.range(at: i)
             guard r.location != NSNotFound,
                   let range = Range(r, in: identity)
@@ -81,7 +81,7 @@ public struct CommitIdentity: Sendable, Equatable, Hashable {
         return CommitIdentity(name: name, email: email, date: date, tzOffset: tzMinutes)
     }
 
-    public var description: String { "\(name) <\(email)>" }
+    nonisolated public var description: String { "\(name) <\(email)>" }
 }
 
 /// A git commit-message trailer. Port of `ITrailer` in `lib/git/interpret-trailers.ts`.
@@ -89,12 +89,12 @@ public struct Trailer: Sendable, Equatable, Hashable {
     public var token: String
     public var value: String
 
-    public init(token: String, value: String) {
+    nonisolated public init(token: String, value: String) {
         self.token = token
         self.value = value
     }
 
-    public var isCoAuthoredBy: Bool { token.lowercased() == "co-authored-by" }
+    nonisolated public var isCoAuthoredBy: Bool { token.lowercased() == "co-authored-by" }
 }
 
 /// Grouping of information required to create a commit. Port of `ICommitContext`.
@@ -119,7 +119,7 @@ public struct CommitContext: Sendable, Equatable {
     /// Pass `--allow-empty`.
     public var allowEmpty: Bool
 
-    public init(
+    nonisolated public init(
         summary: String,
         description: String? = nil,
         amend: Bool = false,
@@ -150,7 +150,7 @@ public struct CommitMessage: Sendable, Equatable {
     /// Task 10 (Apple Intelligence) sets this when the message was generated on-device.
     public var generatedByAppleIntelligence: Bool
 
-    public init(
+    nonisolated public init(
         summary: String,
         description: String? = nil,
         timestamp: TimeInterval = 0,
@@ -162,13 +162,13 @@ public struct CommitMessage: Sendable, Equatable {
         self.generatedByAppleIntelligence = generatedByAppleIntelligence
     }
 
-    public static var `default`: CommitMessage {
+    nonisolated public static var `default`: CommitMessage {
         CommitMessage(summary: "", description: "", timestamp: 0)
     }
 }
 
 /// Returns the 7-char short SHA. Port of `shortenSHA`.
-public func shortenSHA(_ sha: String) -> String {
+nonisolated public func shortenSHA(_ sha: String) -> String {
     String(sha.prefix(7))
 }
 
@@ -177,12 +177,12 @@ public struct CommitOneLine: Sendable, Equatable, Hashable, Identifiable {
     public var sha: String
     public var summary: String
 
-    public init(sha: String, summary: String) {
+    nonisolated public init(sha: String, summary: String) {
         self.sha = sha
         self.summary = summary
     }
 
-    public var id: String { sha }
+    nonisolated public var id: String { sha }
 }
 
 /// A git commit. Port of `Commit` in `models/commit.ts`.
@@ -205,7 +205,7 @@ public struct Commit: Sendable, Equatable, Identifiable {
     public var authoredByCommitter: Bool
     public var isMergeCommit: Bool
 
-    public init(
+    nonisolated public init(
         sha: String,
         shortSha: String,
         summary: String,
@@ -239,5 +239,5 @@ public struct Commit: Sendable, Equatable, Identifiable {
         self.isMergeCommit = parentSHAs.count > 1
     }
 
-    public var id: String { sha }
+    nonisolated public var id: String { sha }
 }

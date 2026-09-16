@@ -11,12 +11,12 @@ public enum GitIgnoreError: Error, Sendable, Equatable {
 }
 
 public enum GitIgnoreOperations {
-    public static func ignorePath(forRepositoryPath path: String) -> String {
+    nonisolated public static func ignorePath(forRepositoryPath path: String) -> String {
         (path as NSString).appendingPathComponent(".gitignore")
     }
 
     /// Port of `escapeGitSpecialCharacters`: escapes `[]!*#?`.
-    public static func escapeGitSpecialCharacters(_ pattern: String) -> String {
+    nonisolated public static func escapeGitSpecialCharacters(_ pattern: String) -> String {
         var out = ""
         for ch in pattern {
             if ch == "[" || ch == "]" || ch == "!" || ch == "*" || ch == "#" || ch == "?" {
@@ -33,7 +33,7 @@ public enum GitIgnoreOperations {
     /// - Empty text stays empty (the live `save` deletes the file instead).
     /// - Otherwise ensure exactly one trailing `\n` (or `\r\n` when autocrlf
     ///   handling demands CRLF).
-    public static func formatContents(_ text: String, autocrlf: String?, safecrlf: String?) -> String {
+    nonisolated public static func formatContents(_ text: String, autocrlf: String?, safecrlf: String?) -> String {
         if text.isEmpty { return "" }
         if autocrlf == "true" && safecrlf == "true" {
             var normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
@@ -46,12 +46,12 @@ public enum GitIgnoreOperations {
     }
 
     /// Merge existing content + new patterns the way `appendIgnoreRule` does.
-    public static func appendedContents(existing: String, patterns: [String], autocrlf: String?, safecrlf: String?) -> String {
+    nonisolated public static func appendedContents(existing: String, patterns: [String], autocrlf: String?, safecrlf: String?) -> String {
         let base = formatContents(existing, autocrlf: autocrlf, safecrlf: safecrlf)
         return formatContents(base + patterns.joined(separator: "\n"), autocrlf: autocrlf, safecrlf: safecrlf)
     }
 
-    static func rejectSymlink(at path: String) throws {
+    nonisolated static func rejectSymlink(at path: String) throws {
         let fm = FileManager.default
         let attrs = try? fm.attributesOfItem(atPath: path)
         if attrs?[.type] as? FileAttributeType == .typeSymbolicLink {
@@ -66,7 +66,7 @@ public enum GitIgnoreOperations {
 }
 
 public enum GitIgnoreLiveOperations {
-    public static func readGitIgnore(repositoryPath: String) throws -> String? {
+    nonisolated public static func readGitIgnore(repositoryPath: String) throws -> String? {
         let path = GitIgnoreOperations.ignorePath(forRepositoryPath: repositoryPath)
         let fm = FileManager.default
         guard fm.fileExists(atPath: path) else { return nil }
@@ -74,7 +74,7 @@ public enum GitIgnoreLiveOperations {
         return try String(contentsOfFile: path, encoding: .utf8)
     }
 
-    public static func configValue(repositoryPath: String, key: String) async -> String? {
+    nonisolated public static func configValue(repositoryPath: String, key: String) async -> String? {
         let result = try? await GitProcess.run(
             ["config", "--get", key], workingDirectory: repositoryPath)
         guard let result, result.exitCode == 0 else { return nil }
@@ -82,7 +82,7 @@ public enum GitIgnoreLiveOperations {
     }
 
     /// Port of `saveGitIgnore`. Empty text deletes the file.
-    public static func saveGitIgnore(repositoryPath: String, text: String) async throws {
+    nonisolated public static func saveGitIgnore(repositoryPath: String, text: String) async throws {
         let path = GitIgnoreOperations.ignorePath(forRepositoryPath: repositoryPath)
         if text.isEmpty {
             if FileManager.default.fileExists(atPath: path) {
@@ -100,7 +100,7 @@ public enum GitIgnoreLiveOperations {
         try formatted.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
-    public static func appendIgnoreRule(repositoryPath: String, patterns: [String]) async throws {
+    nonisolated public static func appendIgnoreRule(repositoryPath: String, patterns: [String]) async throws {
         let existing = (try? readGitIgnore(repositoryPath: repositoryPath)) ?? ""
         let autocrlf = await configValue(repositoryPath: repositoryPath, key: "core.autocrlf")
         let safecrlf = await configValue(repositoryPath: repositoryPath, key: "core.safecrlf")
@@ -109,7 +109,7 @@ public enum GitIgnoreLiveOperations {
         try await saveGitIgnore(repositoryPath: repositoryPath, text: merged)
     }
 
-    public static func appendIgnoreFile(repositoryPath: String, paths: [String]) async throws {
+    nonisolated public static func appendIgnoreFile(repositoryPath: String, paths: [String]) async throws {
         let escaped = paths.map(GitIgnoreOperations.escapeGitSpecialCharacters)
         try await appendIgnoreRule(repositoryPath: repositoryPath, patterns: escaped)
     }

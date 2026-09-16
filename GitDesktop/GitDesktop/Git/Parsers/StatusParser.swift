@@ -20,7 +20,7 @@ public struct StatusEntry: Sendable, Equatable {
     public var oldPath: String?
     public var renameOrCopyScore: Int?
 
-    public init(
+    nonisolated public init(
         path: String,
         statusCode: String,
         submoduleStatusCode: String,
@@ -44,18 +44,18 @@ public enum StatusParserError: Error, Equatable {
 
 public enum StatusParser {
     // 1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
-    static let changedEntryPattern =
+    nonisolated static let changedEntryPattern =
         #"^1 ([MADRCUTX?!.]{2}) (N\.\.\.|S[C.][M.][U.]) (\d+) (\d+) (\d+) ([a-f0-9]+) ([a-f0-9]+) ([\s\S]*?)$"#
     // 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><sep><origPath>
-    static let renamedEntryPattern =
+    nonisolated static let renamedEntryPattern =
         #"^2 ([MADRCUTX?!.]{2}) (N\.\.\.|S[C.][M.][U.]) (\d+) (\d+) (\d+) ([a-f0-9]+) ([a-f0-9]+) ([RC]\d+) ([\s\S]*?)$"#
     // u <xy> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
-    static let unmergedEntryPattern =
+    nonisolated static let unmergedEntryPattern =
         #"^u ([DAU]{2}) (N\.\.\.|S[C.][M.][U.]) (\d+) (\d+) (\d+) (\d+) ([a-f0-9]+) ([a-f0-9]+) ([a-f0-9]+) ([\s\S]*?)$"#
 
     /// Split NUL-delimited buffer output, keeping the trailing empty token
     /// semantics of the original `splitBuffer`.
-    public static func splitNUL(_ data: Data) -> [Data] {
+    nonisolated public static func splitNUL(_ data: Data) -> [Data] {
         var tokens: [Data] = []
         var start = data.startIndex
         for index in data.indices where data[index] == 0 {
@@ -67,7 +67,7 @@ public enum StatusParser {
     }
 
     /// Parse `git status --porcelain=2 -z` buffer output.
-    public static func parsePorcelainStatus(_ output: Data) throws -> [StatusItem] {
+    nonisolated public static func parsePorcelainStatus(_ output: Data) throws -> [StatusItem] {
         var entries: [StatusItem] = []
         let tokens = splitNUL(output)
         var index = 0
@@ -101,13 +101,13 @@ public enum StatusParser {
         return entries
     }
 
-    public static func parseChangedEntry(_ field: String) throws -> StatusEntry {
+    nonisolated public static func parseChangedEntry(_ field: String) throws -> StatusEntry {
         let match = firstMatch(pattern: changedEntryPattern, in: field, groups: 8)
         guard let match else { throw StatusParserError.changedEntryParseError(field) }
         return StatusEntry(path: match[7], statusCode: match[0], submoduleStatusCode: match[1])
     }
 
-    public static func parseRenamedOrCopiedEntry(_ field: String, oldPath: String?) throws -> StatusEntry {
+    nonisolated public static func parseRenamedOrCopiedEntry(_ field: String, oldPath: String?) throws -> StatusEntry {
         let match = firstMatch(pattern: renamedEntryPattern, in: field, groups: 9)
         guard let match else { throw StatusParserError.renamedEntryParseError(field) }
         guard let oldPath, !oldPath.isEmpty else { throw StatusParserError.missingOldPath }
@@ -117,19 +117,19 @@ public enum StatusParser {
             oldPath: oldPath, renameOrCopyScore: score)
     }
 
-    public static func parseUnmergedEntry(_ field: String) throws -> StatusEntry {
+    nonisolated public static func parseUnmergedEntry(_ field: String) throws -> StatusEntry {
         let match = firstMatch(pattern: unmergedEntryPattern, in: field, groups: 10)
         guard let match else { throw StatusParserError.unmergedEntryParseError(field) }
         return StatusEntry(path: match[9], statusCode: match[0], submoduleStatusCode: match[1])
     }
 
-    public static func parseUntrackedEntry(_ field: String) -> StatusEntry {
+    nonisolated public static func parseUntrackedEntry(_ field: String) -> StatusEntry {
         StatusEntry(path: String(field.dropFirst(2)), statusCode: "??", submoduleStatusCode: "????")
     }
 
     // MARK: - Mapping
 
-    public static func mapSubmoduleStatus(_ code: String) -> SubmoduleStatus? {
+    nonisolated public static func mapSubmoduleStatus(_ code: String) -> SubmoduleStatus? {
         guard code.hasPrefix("S"), code.count >= 4 else { return nil }
         let chars = Array(code)
         return SubmoduleStatus(
@@ -140,7 +140,7 @@ public enum StatusParser {
 
     /// Map raw XY + submodule codes to a `FileEntry`.
     /// Exhaustive table ported from `mapStatus` in `status-parser.ts`.
-    public static func mapStatus(
+    nonisolated public static func mapStatus(
         _ statusCode: String,
         submoduleStatusCode: String,
         renameOrCopyScore: Int? = nil
@@ -181,7 +181,7 @@ public enum StatusParser {
         public var currentTip: String?
         public var aheadBehind: AheadBehind?
 
-        public init(
+        nonisolated public init(
             currentBranch: String? = nil,
             currentUpstreamBranch: String? = nil,
             currentTip: String? = nil,
@@ -195,7 +195,7 @@ public enum StatusParser {
     }
 
     /// Reduce `# branch.*` headers. Port of `parseStatusHeader` in `status.ts`.
-    public static func parseHeaders(_ items: [StatusItem]) -> StatusHeaders {
+    nonisolated public static func parseHeaders(_ items: [StatusItem]) -> StatusHeaders {
         var headers = StatusHeaders()
         for item in items {
             guard case .header(let value) = item else { continue }
@@ -229,18 +229,18 @@ public enum StatusParser {
         public var conflictCountsByPath: [String: Int]
         public var binaryFilePaths: Set<String>
 
-        public init(conflictCountsByPath: [String: Int] = [:], binaryFilePaths: Set<String> = []) {
+        nonisolated public init(conflictCountsByPath: [String: Int] = [:], binaryFilePaths: Set<String> = []) {
             self.conflictCountsByPath = conflictCountsByPath
             self.binaryFilePaths = binaryFilePaths
         }
     }
 
     /// Known conflicted index codes (mirrors `conflictStatusCodes`).
-    public static let conflictStatusCodes: Set<String> = ["DD", "AU", "UD", "UA", "DU", "AA", "UU"]
+    nonisolated public static let conflictStatusCodes: Set<String> = ["DD", "AU", "UD", "UA", "DU", "AA", "UU"]
 
     /// Convert a `FileEntry` to an app-facing `AppFileStatus`.
     /// Port of `convertToAppStatus` in `lib/git/status.ts`.
-    public static func convertToAppStatus(
+    nonisolated public static func convertToAppStatus(
         path: String,
         entry: FileEntry,
         oldPath: String? = nil,
@@ -272,7 +272,7 @@ public enum StatusParser {
         }
     }
 
-    private static func parseConflictedState(
+    nonisolated private static func parseConflictedState(
         action: UnmergedEntrySummary,
         us: GitStatusEntry,
         them: GitStatusEntry,
@@ -296,7 +296,7 @@ public enum StatusParser {
 
     // MARK: - Regex helper
 
-    static func firstMatch(pattern: String, in text: String, groups: Int) -> [String]? {
+    nonisolated static func firstMatch(pattern: String, in text: String, groups: Int) -> [String]? {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         guard let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               match.numberOfRanges == groups + 1

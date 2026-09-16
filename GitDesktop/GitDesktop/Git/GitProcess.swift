@@ -11,17 +11,17 @@ public struct GitResult: Sendable {
     public var stdout: Data
     public var stderr: Data
 
-    public init(exitCode: Int32, stdout: Data, stderr: Data) {
+    nonisolated public init(exitCode: Int32, stdout: Data, stderr: Data) {
         self.exitCode = exitCode
         self.stdout = stdout
         self.stderr = stderr
     }
 
-    public var stdoutString: String {
+    nonisolated public var stdoutString: String {
         String(data: stdout, encoding: .utf8) ?? ""
     }
 
-    public var stderrString: String {
+    nonisolated public var stderrString: String {
         String(data: stderr, encoding: .utf8) ?? ""
     }
 }
@@ -71,12 +71,12 @@ private final class CancellableProcessBox: @unchecked Sendable {
 /// `Process`-based git execution with Desktop-compatible environment.
 public enum GitProcess {
     /// Terminal output cap for error messages (256 KB; log last 1024 chars).
-    public static let maxTerminalOutputSize = 256 * 1024
-    public static let terminalLogTailLength = 1024
+    nonisolated public static let maxTerminalOutputSize = 256 * 1024
+    nonisolated public static let terminalLogTailLength = 1024
 
     /// Locate the git binary: `GIT_PATH` override, then `/usr/bin/git`,
     /// then `xcrun -f git`, falling back to `git` on PATH.
-    public static func locateGit() -> String {
+    nonisolated public static func locateGit() -> String {
         if let override_ = ProcessInfo.processInfo.environment["GIT_PATH"],
            !override_.isEmpty,
            FileManager.default.isExecutableFile(atPath: override_) {
@@ -95,7 +95,7 @@ public enum GitProcess {
     /// `TERM=dumb`, `GIT_TERMINAL_PROMPT=0`, `GIT_CONFIG_PARAMETERS`
     /// (unsets the user credential helper, adds the Desktop helper),
     /// `GIT_USER_AGENT`, SSH askpass suppression.
-    public static func defaultEnvironment(extra: [String: String] = [:]) -> [String: String] {
+    nonisolated public static func defaultEnvironment(extra: [String: String] = [:]) -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         env["TERM"] = "dumb"
         env["GIT_TERMINAL_PROMPT"] = "0"
@@ -124,7 +124,7 @@ public enum GitProcess {
     ///   - workingDirectory: Repository path (nil = no cwd override).
     ///   - stdin: Optional data piped to stdin (e.g. commit message via `-F -`).
     ///   - environment: Extra env vars merged over `defaultEnvironment()`.
-    public static func run(
+    nonisolated public static func run(
         _ args: [String],
         workingDirectory: String? = nil,
         stdin: Data? = nil,
@@ -152,7 +152,7 @@ public enum GitProcess {
     /// CancellationError` paths trigger; a process that already exited
     /// normally before Cancel still returns its result unless the flag was
     /// set first (cancel wins ties — documented, predictable).
-    public static func runCancellable(
+    nonisolated public static func runCancellable(
         _ args: [String],
         workingDirectory: String? = nil,
         stdin: Data? = nil,
@@ -183,7 +183,7 @@ public enum GitProcess {
         }
     }
 
-    private static func runBlocking(
+    nonisolated private static func runBlocking(
         _ args: [String],
         workingDirectory: String?,
         stdin: Data?,
@@ -194,7 +194,7 @@ public enum GitProcess {
             environment: environment, cancellation: nil)
     }
 
-    private static func runBlocking(
+    nonisolated private static func runBlocking(
         _ args: [String],
         workingDirectory: String?,
         stdin: Data?,
@@ -257,13 +257,13 @@ public enum GitProcess {
 
     /// Last N chars of terminal output for error display (mirrors the
     /// "log last 1024 chars" rule in Docs/09-git-layer.md).
-    public static func terminalTail(_ output: String) -> String {
+    nonisolated public static func terminalTail(_ output: String) -> String {
         guard output.count > terminalLogTailLength else { return output }
         return String(output.suffix(terminalLogTailLength))
     }
 
     /// Truncate oversized terminal output to the 256 KB cap.
-    public static func truncateTerminalOutput(_ data: Data) -> Data {
+    nonisolated public static func truncateTerminalOutput(_ data: Data) -> Data {
         guard data.count > maxTerminalOutputSize else { return data }
         return data.suffix(maxTerminalOutputSize)
     }

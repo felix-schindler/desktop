@@ -22,18 +22,18 @@ import Foundation
 
 /// Stateful rebase progress parser (port of `GitRebaseParser`).
 public struct RebaseProgressParser: Sendable {
-    private static let pattern: NSRegularExpression? = try? NSRegularExpression(
+    nonisolated private static let pattern: NSRegularExpression? = try? NSRegularExpression(
         pattern: #"^Rebasing \((\d+)\/(\d+)\)$"#)
 
     public var commits: [CommitOneLine]
 
-    public init(commits: [CommitOneLine]) {
+    nonisolated public init(commits: [CommitOneLine]) {
         self.commits = commits
     }
 
     /// Parse one stderr line. Returns nil for non-progress lines (conflict
     /// chatter, etc.), mirroring the reference.
-    public func parse(line: String) -> AppProgress? {
+    nonisolated public func parse(line: String) -> AppProgress? {
         guard let regex = Self.pattern,
               let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
               match.numberOfRanges == 3,
@@ -52,7 +52,7 @@ public struct RebaseProgressParser: Sendable {
                 description: line))
     }
 
-    private func intGroup(_ match: NSTextCheckingResult, _ index: Int, in line: String) -> Int? {
+    nonisolated private func intGroup(_ match: NSTextCheckingResult, _ index: Int, in line: String) -> Int? {
         let range = match.range(at: index)
         guard range.location != NSNotFound, let swiftRange = Range(range, in: line) else { return nil }
         return Int(line[swiftRange])
@@ -64,20 +64,20 @@ public struct RebaseProgressParser: Sendable {
 /// `CherryPickProgressParser` in `Views/Merge/MultiCommitProgress.swift`,
 /// which returns `MultiCommitProgress` instead of `AppProgress`.
 public struct CherryPickAppProgressParser: Sendable {
-    private static let pattern: NSRegularExpression? = try? NSRegularExpression(
+    nonisolated private static let pattern: NSRegularExpression? = try? NSRegularExpression(
         pattern: #"^\[(.*\s.*)\]"#)
 
     public var commits: [CommitOneLine]
     public var count: Int
 
-    public init(commits: [CommitOneLine], count: Int = 0) {
+    nonisolated public init(commits: [CommitOneLine], count: Int = 0) {
         self.commits = commits
         self.count = count
     }
 
     /// Parse one stdout line. Returns nil for lines that do not open a newly
     /// picked commit (timestamps, file stats, conflicts, …).
-    public mutating func parse(line: String) -> AppProgress? {
+    nonisolated public mutating func parse(line: String) -> AppProgress? {
         guard let regex = Self.pattern,
               regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil,
               !commits.isEmpty
