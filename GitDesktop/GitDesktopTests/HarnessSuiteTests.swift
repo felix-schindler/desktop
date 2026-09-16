@@ -83,4 +83,9 @@ final class HarnessSuiteTests: XCTestCase {
         let failures = await PartialStagingTests.runAll()
         XCTAssertEqual(failures, 0)
     }
+
+    @MainActor func testUndo() async {
+        let failures = await UndoTests.runAll()
+        XCTAssertEqual(failures, 0)
+    }
 }

@@ -261,6 +261,76 @@ public struct MultiCommitConflictFile: Sendable, Equatable, Identifiable {
 
 // MARK: Shared rules
 
+/// Pre-operation tip recorded when a cherry-pick/squash/reorder completes,
+/// so the success banner's Undo can `reset --hard` back to it. Port of
+/// `multiCommitOperationUndoState` (`{ undoSha, branchName }`): it lives
+/// beside the refreshed snapshot (keyed by repository hash on `AppStore`),
+/// not inside it, so refreshes never clobber it.
+public struct MultiCommitUndoState: Sendable, Equatable {
+    public var kind: MultiCommitOperationKind
+    /// Tip SHA before the operation ran (`reset --hard` target).
+    public var undoSHA: String
+    /// Branch the operation ran on (undo refuses after a branch switch).
+    public var branchName: String
+
+    nonisolated public init(kind: MultiCommitOperationKind, undoSHA: String, branchName: String) {
+        self.kind = kind
+        self.undoSHA = undoSHA
+        self.branchName = branchName
+    }
+}
+
+/// Why banner undo refused. Port of the `_undoMultiCommitOperation` guards
+/// (no undo info → dirty workdir → branch switch → undetermined SHA).
+public enum MultiCommitUndoRefusal: Sendable, Equatable {
+    case noUndoInfo(kind: MultiCommitOperationKind)
+    case dirtyWorkdir(kind: MultiCommitOperationKind)
+    case branchSwitched(kind: MultiCommitOperationKind, expectedBranch: String)
+    case undeterminedSHA(kind: MultiCommitOperationKind)
+
+    nonisolated public var message: String {
+        switch self {
+        case .noUndoInfo(let kind):
+            return "There is no undo information available for this \(kind.rawValue.lowercased()) operation."
+        case .dirtyWorkdir(let kind):
+            return "Cannot undo \(kind.rawValue.lowercased()): this would delete local changes. Discard or stash them first."
+        case .branchSwitched(let kind, let expectedBranch):
+            return "Cannot undo \(kind.rawValue.lowercased()): you are no longer on '\(expectedBranch)'."
+        case .undeterminedSHA(let kind):
+            return "Cannot undo \(kind.rawValue.lowercased()): could not determine the commit to reset to."
+        }
+    }
+}
+
+/// Undo verdict for a success banner. Port of the `_undoMultiCommitOperation`
+/// guard chain: `.proceed` carries the validated record, `.refuse` the
+/// user-facing reason. Pure so tests cover it without git.
+public enum MultiCommitUndoDecision: Sendable, Equatable {
+    case proceed(record: MultiCommitUndoState)
+    case refuse(reason: MultiCommitUndoRefusal)
+}
+
+nonisolated public func decideMultiCommitUndo(
+    record: MultiCommitUndoState?,
+    expectedKind: MultiCommitOperationKind,
+    tip: Tip,
+    hasLocalChanges: Bool
+) -> MultiCommitUndoDecision {
+    guard let record, record.kind == expectedKind else {
+        return .refuse(reason: .noUndoInfo(kind: expectedKind))
+    }
+    if hasLocalChanges {
+        return .refuse(reason: .dirtyWorkdir(kind: expectedKind))
+    }
+    guard case .valid(let branch) = tip, branch.name == record.branchName else {
+        return .refuse(reason: .branchSwitched(kind: expectedKind, expectedBranch: record.branchName))
+    }
+    guard !record.undoSHA.isEmpty else {
+        return .refuse(reason: .undeterminedSHA(kind: expectedKind))
+    }
+    return .proceed(record: record)
+}
+
 /// Whether the operation may start with the current dialog selection.
 /// Port of `canStartOperation` in `base-choose-branch-dialog.tsx`.
 public func canStartOperation(

@@ -408,30 +408,62 @@ public func shellMerge(
     }
 }
 
-// MARK: - Banner undo (reset-hard when we know the target)
+// MARK: - Banner undo (reset --hard to the recorded pre-op tip)
 
-/// Best-effort undo for banner actions. Cherry-pick/squash/reorder banners
-/// carry counts but not SHAs in this shell seam, so true `reset --hard`
-/// undo needs Task 14's subscriber map — here we acknowledge with the
-/// `*Undone` banner (plus a refresh) so the action is real feedback, not a
-/// dismiss. Rebase/merge success banners just clear (no Undone variant).
+/// True undo for cherry-pick/squash/reorder success banners. Port of
+/// `_undoMultiCommitOperation`: the pre-op tip recorded at completion is
+/// validated (undo info → clean workdir → still on the branch → known SHA)
+/// and the branch is `reset --hard` to it, then the `*Undone` banner posts
+/// and the record is consumed. Guard trips and reset failures surface `.error`
+/// sheets (never silent, never crashing); rebase/merge success banners just
+/// clear (no undo in the reference either).
 @MainActor
 public func shellUndoBanner(store: AppStore, banner: Banner) async {
     guard let repository = store.selectedRepository else {
         store.clearBanner()
         return
     }
+    let kind: MultiCommitOperationKind
+    let undone: Banner
     switch banner {
     case .successfulCherryPick(let target, let count, _):
-        await store.refreshRepository(repository)
-        store.setBanner(.cherryPickUndone(targetBranchName: target, countCherryPicked: count))
+        kind = .cherryPick
+        undone = .cherryPickUndone(targetBranchName: target, countCherryPicked: count)
     case .successfulSquash(let count, _):
-        await store.refreshRepository(repository)
-        store.setBanner(.squashUndone(commitsCount: count))
+        kind = .squash
+        undone = .squashUndone(commitsCount: count)
     case .successfulReorder(let count, _):
-        await store.refreshRepository(repository)
-        store.setBanner(.reorderUndone(commitsCount: count))
+        kind = .reorder
+        undone = .reorderUndone(commitsCount: count)
     default:
         store.clearBanner()
+        return
+    }
+    guard let state = store.repositoryStates[repository.hash] else {
+        store.clearBanner()
+        return
+    }
+    switch decideMultiCommitUndo(
+        record: store.multiCommitUndoStates[repository.hash],
+        expectedKind: kind,
+        tip: state.tip,
+        hasLocalChanges: !state.workingDirectory.files.isEmpty
+    ) {
+    case .refuse(let reason):
+        store.showPopup(.error(message: reason.message))
+        return
+    case .proceed(let record):
+        // No force-push bookkeeping: the Swift state has no
+        // `forcePushBranches` map (the warn-force-push gate is settings-only).
+        // No source-branch checkout either: our cherry-pick never leaves the
+        // branch (and branch creation during cherry-pick is not ported).
+        let reset: Void? = await store.performPipelineMutation(for: repository) { service in
+            try await service.reset(mode: .hard, ref: record.undoSHA)
+        }
+        // `performPipelineMutation` already posted `.error` (or routed to
+        // Missing) on failure — only acknowledge on success.
+        guard reset != nil else { return }
+        store.multiCommitUndoStates.removeValue(forKey: repository.hash)
+        store.setBanner(undone)
     }
 }

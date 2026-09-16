@@ -88,6 +88,14 @@ public final class AppStore: ObservableObject {
     /// `gitStore(for:)`; dropped on removal, re-keyed on alias change.
     public var gitStores: [String: GitStore] = [:]
 
+    /// Pre-operation tips for banner undo, keyed by repository `hash`.
+    /// Recorded when a cherry-pick/squash/reorder completes and consumed by
+    /// `shellUndoBanner` (`reset --hard` + guards). Mirrors the reference
+    /// `multiCommitOperationUndoState`: it lives beside the refreshed
+    /// snapshot (not inside it) so refreshes never clobber it. Dropped on
+    /// removal, re-keyed on alias change, like the caches above.
+    public var multiCommitUndoStates: [String: MultiCommitUndoState] = [:]
+
     /// Hashes with an in-flight `refreshRepository`. Views use it for
     /// spinners; it never blocks selection.
     public var refreshingRepositoryHashes: Set<String> = []
@@ -266,6 +274,7 @@ public final class AppStore: ObservableObject {
         repositories.removeAll { $0.id == repository.id }
         repositoryStates.removeValue(forKey: repository.hash)
         gitStores.removeValue(forKey: repository.hash)
+        multiCommitUndoStates.removeValue(forKey: repository.hash)
         refreshingRepositoryHashes.remove(repository.hash)
         if case .repository(let state) = selection,
            state.repository.id == repository.id {
@@ -304,6 +313,9 @@ public final class AppStore: ObservableObject {
         if let store = gitStores.removeValue(forKey: repository.hash) {
             gitStores[updated.hash] = store
             Task { await store.updateRepository(updated) }
+        }
+        if let undo = multiCommitUndoStates.removeValue(forKey: repository.hash) {
+            multiCommitUndoStates[updated.hash] = undo
         }
         refreshingRepositoryHashes.remove(repository.hash)
     }

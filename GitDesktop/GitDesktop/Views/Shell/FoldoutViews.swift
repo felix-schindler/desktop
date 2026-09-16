@@ -120,6 +120,14 @@ struct BranchFoldoutContent: View {
         // shell runs the op + banner so the drop target is live).
         guard let repository, !shas.isEmpty else { return }
         store.closeFoldout()
+        // Pre-op tip for banner undo (`reset --hard` target). Captured up
+        // front — after the refresh the tip has moved.
+        let undoRecord: MultiCommitUndoState? = {
+            guard let state = store.repositoryStates[repository.hash],
+                  case .valid(let current) = state.tip else { return nil }
+            return MultiCommitUndoState(
+                kind: .cherryPick, undoSHA: current.tip.sha, branchName: current.name)
+        }()
         Task {
             let service = LiveMultiCommitService()
             do {
@@ -127,6 +135,9 @@ struct BranchFoldoutContent: View {
                 await store.refreshRepository(repository)
                 switch result {
                 case .completedWithoutError:
+                    if let undoRecord {
+                        store.multiCommitUndoStates[repository.hash] = undoRecord
+                    }
                     store.setBanner(.successfulCherryPick(
                         targetBranchName: branch.nameWithoutRemote,
                         count: shas.count, actionToken: UUID()))

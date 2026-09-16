@@ -15,12 +15,6 @@ The test target also proves `project.pbxproj` hand-edits are feasible again
 
 ## Correctness gaps
 
-- **Banner undo is acknowledge-only (no undo SHA).**
-  `shellUndoBanner` (`Views/Shell/ShellPipelineActions.swift:419-437`) only
-  refreshes + posts `*Undone` banners; success `Banner` cases carry
-  counts/token, no SHA (`Models/Banner.swift:34-40`). True undo needs SHA
-  plumbing + `reset --hard` (with dirty-workdir / branch-switched guards, see
-  the reference `_undoMultiCommitOperation`).
 - **Stale `.error` sheets never auto-clear.** `showPopup` always appends
   (`App/AppState.swift:172-190`); successful refresh only updates state
   (`App/AppStore+GitPipeline.swift:66-82`). Decide whether success clears errors.
