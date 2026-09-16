@@ -100,10 +100,11 @@ public struct Trailer: Sendable, Equatable, Hashable {
 /// Grouping of information required to create a commit. Port of `ICommitContext`.
 /// (`messageGeneratedByCopilot` deleted per scope; Task 10 adds
 /// `generatedByAppleIntelligence` instead.)
-/// Task 3 adds `filePaths` (full-file inclusions to stage, mirroring
-/// `unstageAll` + `stageFiles`) and the one-shot commit options
-/// (`noVerify`/`signOff`/`allowEmpty`); all defaulted so Task-1 call sites
-/// keep compiling.
+/// `files` carries the to-be-committed changes with their per-line
+/// `DiffSelection` so `commit` can stage partial selections via
+/// `git apply --cached` (mirroring `unstageAll` + `stageFiles`);
+/// `filePaths` is the legacy full-file path list, still honored when `files`
+/// is empty. All defaulted so Task-1 call sites keep compiling.
 public struct CommitContext: Sendable, Equatable {
     public var summary: String
     public var description: String?
@@ -112,6 +113,9 @@ public struct CommitContext: Sendable, Equatable {
     /// Repo-relative paths to stage before committing. Empty commits
     /// whatever is already staged (plus `--allow-empty` when `allowEmpty`).
     public var filePaths: [String]
+    /// Full changes with line-level selection for partial staging.
+    /// Preferred over `filePaths` when non-empty.
+    public var files: [WorkingDirectoryFileChange]
     /// Pass `--no-verify` (skip commit hooks).
     public var noVerify: Bool
     /// Pass `--signoff` (append `Signed-off-by:` trailer).
@@ -125,6 +129,7 @@ public struct CommitContext: Sendable, Equatable {
         amend: Bool = false,
         trailers: [Trailer] = [],
         filePaths: [String] = [],
+        files: [WorkingDirectoryFileChange] = [],
         noVerify: Bool = false,
         signOff: Bool = false,
         allowEmpty: Bool = false
@@ -134,6 +139,7 @@ public struct CommitContext: Sendable, Equatable {
         self.amend = amend
         self.trailers = trailers
         self.filePaths = filePaths
+        self.files = files
         self.noVerify = noVerify
         self.signOff = signOff
         self.allowEmpty = allowEmpty

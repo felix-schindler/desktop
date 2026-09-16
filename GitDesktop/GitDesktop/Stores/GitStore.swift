@@ -296,8 +296,9 @@ public actor GitStore {
         return state
     }
 
-    /// Stage full-file `context.filePaths` (via `service.commit`, which
-    /// mirrors `createCommit`) then refresh. Returns the new SHA + state.
+    /// Stage `context` (full files + partial `git apply --cached` patches
+    /// via `service.commit`, which mirrors `createCommit`) then refresh.
+    /// Returns the new SHA + state.
     @discardableResult
     public func commit(context: CommitContext, historyLimit: Int = 100) async throws -> (String, RepositoryState) {
         let (sha, state) = try await performAndRefresh(historyLimit: historyLimit) { service in

@@ -167,9 +167,9 @@ public struct LiveGitService: GitService, Sendable {
     // MARK: Staging + commit (Task 3)
 
     /// Stage full-file paths via `git add`. Noop for an empty list.
-    /// (Partial line-level staging lands with the Task-4 diff viewer, which
-    /// applies patches via `git apply --cached`; until then partial
-    /// `DiffSelection`s commit as full files.)
+    /// (Partial line-level staging runs inside `commit` via
+    /// `StageLiveOperations.stageFiles`, which applies
+    /// `git apply --cached` patches for `.partial` selections.)
     public func stage(files: [String]) async throws {
         guard !files.isEmpty else { return }
         let result = try await GitProcess.run(
@@ -193,8 +193,12 @@ public struct LiveGitService: GitService, Sendable {
 
     /// Create a commit from `context`. Mirrors `createCommit` in
     /// `electron/app/src/lib/git/commit.ts`: reset the index, stage the
-    /// context's full-file paths, then `git commit -F -` with the formatted
-    /// message. Returns the new commit SHA.
+    /// selection (`StageLiveOperations.stageFiles` — full files via
+    /// `update-index`, partial `DiffSelection`s via `git apply --cached`
+    /// patches), then `git commit -F -` with the formatted message.
+    /// `context.files` (with selections) is preferred; legacy callers that
+    /// only carry `context.filePaths` still stage full files. Returns the
+    /// new commit SHA.
     public func commit(context: CommitContext) async throws -> String {
         let resetResult = try await GitProcess.run(
             ["reset"], workingDirectory: repositoryPath)
@@ -202,7 +206,10 @@ public struct LiveGitService: GitService, Sendable {
             resetResult, args: ["reset"], successExitCodes: [0]) {
             throw error
         }
-        if !context.filePaths.isEmpty {
+        if !context.files.isEmpty {
+            try await StageLiveOperations.stageFiles(
+                repositoryPath: repositoryPath, files: context.files)
+        } else if !context.filePaths.isEmpty {
             try await stage(files: context.filePaths)
         }
         let message = formatCommitMessage(

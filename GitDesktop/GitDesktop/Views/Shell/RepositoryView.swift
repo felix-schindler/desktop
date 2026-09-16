@@ -452,7 +452,7 @@ private struct ChangesDetailPane: View {
     ) {
         // Line-level gutter toggles write back to the pipeline-owned
         // `RepositoryState` so the tri-state checkboxes stay in sync
-        // (commit still stages full files until Task 4 adds patch staging).
+        // (`commit` stages partial selections via `git apply --cached`).
         guard var state = store.repositoryStates[repository.hash] else { return }
         let updated = state.workingDirectory.files.map {
             $0.id == file.id ? $0.withSelection(selection) : $0

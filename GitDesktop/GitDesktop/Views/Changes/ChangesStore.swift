@@ -8,8 +8,9 @@ import SwiftUI
 // (`AppStore`, `GitService`, `RepositoryState`, `WorkingDirectoryStatus`)
 // without redefining them: selection/filter drafts live here, and confirmed
 // mutations are written back via `AppStore.updateRepositoryState(_:)`.
-// Staging + commit go through `GitService` so Previews/tests can use
-// `MockGitService` (Task 4 adds patch-level staging for partial selections).
+// Staging + commit go through `GitService.commit`, which stages full files
+// via `update-index` and partial line selections via `git apply --cached`
+// patches, so Previews/tests can use `MockGitService`.
 
 /// Which pre-commit confirmation is awaiting the user.
 public enum PendingCommitConfirm: Sendable, Equatable {
@@ -273,12 +274,14 @@ public final class ChangesStore: ObservableObject {
     }
 
     private func performCommit() async {
+        let files = filesToBeCommitted
         let context = CommitContext(
             summary: effectiveSummary,
             description: commitDescription.isEmpty ? nil : commitDescription,
             amend: commitToAmend != nil,
             trailers: coAuthorTrailers(for: coAuthors),
-            filePaths: filesToBeCommitted.map(\.path),
+            filePaths: files.map(\.path),
+            files: files,
             noVerify: skipCommitHooks,
             signOff: signOffCommits,
             allowEmpty: allowEmptyCommit)
@@ -289,13 +292,10 @@ public final class ChangesStore: ObservableObject {
             hookProgress = nil
         }
         do {
-            // Stage full-file inclusions up front so `commit` reflects the
-            // checkbox state (mirrors `unstageAll` + `stageFiles`). Partial
-            // line-level staging lands with the Task-4 diff viewer.
-            let included = filesToBeCommitted.map(\.path)
-            if !included.isEmpty {
-                try await gitService.stage(files: included)
-            }
+            // Index setup (full-file `update-index` + partial
+            // `git apply --cached` staging) lives in `service.commit`
+            // (mirrors `unstageAll` + `stageFiles`), so a partial
+            // `DiffSelection` commits only its selected lines.
             _ = try await gitService.commit(context: context)
             summary = ""
             commitDescription = ""

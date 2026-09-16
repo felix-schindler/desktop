@@ -15,10 +15,6 @@ The test target also proves `project.pbxproj` hand-edits are feasible again
 
 ## Correctness gaps
 
-- **Partial staging commits full files.** `ChangesStore.performCommit`
-  (`Views/Changes/ChangesStore.swift:275-299`) stages `filePaths` wholesale
-  via `git add` (`Git/GitService.swift:169-172,198-207`). Needs
-  `git apply --cached` patch staging before commit.
 - **Banner undo is acknowledge-only (no undo SHA).**
   `shellUndoBanner` (`Views/Shell/ShellPipelineActions.swift:419-437`) only
   refreshes + posts `*Undone` banners; success `Banner` cases carry
