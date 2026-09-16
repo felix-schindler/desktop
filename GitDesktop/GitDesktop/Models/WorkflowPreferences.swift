@@ -12,7 +12,7 @@ public enum ForkContributionTarget: String, Codable, Sendable {
 public struct WorkflowPreferences: Codable, Sendable, Equatable {
     public var forkContributionTarget: ForkContributionTarget?
 
-    public init(forkContributionTarget: ForkContributionTarget? = nil) {
+    nonisolated public init(forkContributionTarget: ForkContributionTarget? = nil) {
         self.forkContributionTarget = forkContributionTarget
     }
 }

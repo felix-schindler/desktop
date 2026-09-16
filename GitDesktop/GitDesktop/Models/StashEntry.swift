@@ -11,7 +11,7 @@ public struct StashEntry: Sendable, Equatable, Identifiable {
     public var tree: String
     public var parents: [String]
 
-    public init(
+    nonisolated public init(
         name: String,
         branchName: String,
         stashSha: String,
@@ -27,7 +27,7 @@ public struct StashEntry: Sendable, Equatable, Identifiable {
         self.parents = parents
     }
 
-    public var id: String { name }
+    nonisolated public var id: String { name }
 }
 
 public enum StashedChangesLoadState: String, Sendable {
@@ -41,7 +41,7 @@ public enum StashedFileChanges: Sendable, Equatable {
     case loading
     case loaded(files: [CommittedFileChange])
 
-    public var kind: StashedChangesLoadState {
+    nonisolated public var kind: StashedChangesLoadState {
         switch self {
         case .notLoaded: return .notLoaded
         case .loading: return .loading

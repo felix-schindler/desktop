@@ -41,7 +41,7 @@ public enum Banner: Sendable, Equatable {
     case conflictsFound(operationDescription: String, actionToken: UUID)
     case osVersionNoLongerSupported
 
-    public var type: BannerType {
+    nonisolated public var type: BannerType {
         switch self {
         case .successfulMerge: return .successfulMerge
         case .mergeConflictsFound: return .mergeConflictsFound

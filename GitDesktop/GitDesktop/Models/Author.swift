@@ -18,7 +18,7 @@ public enum ManualConflictResolution: String, Codable, Sendable {
     case ours
     case theirs
 
-    public var gitFlag: String {
+    nonisolated public var gitFlag: String {
         switch self {
         case .ours: return "--ours"
         case .theirs: return "--theirs"

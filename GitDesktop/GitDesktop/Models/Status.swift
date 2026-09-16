@@ -35,7 +35,7 @@ public struct SubmoduleStatus: Codable, Sendable, Equatable, Hashable {
     public var modifiedChanges: Bool
     public var untrackedChanges: Bool
 
-    public init(commitChanged: Bool, modifiedChanges: Bool, untrackedChanges: Bool) {
+    nonisolated public init(commitChanged: Bool, modifiedChanges: Bool, untrackedChanges: Bool) {
         self.commitChanged = commitChanged
         self.modifiedChanges = modifiedChanges
         self.untrackedChanges = untrackedChanges
@@ -59,13 +59,13 @@ public struct TextConflictDetails: Sendable, Equatable, Hashable {
     public var us: GitStatusEntry
     public var them: GitStatusEntry
 
-    public init(action: UnmergedEntrySummary, us: GitStatusEntry, them: GitStatusEntry) {
+    nonisolated public init(action: UnmergedEntrySummary, us: GitStatusEntry, them: GitStatusEntry) {
         self.action = action
         self.us = us
         self.them = them
     }
 
-    public var isTextConflict: Bool {
+    nonisolated public var isTextConflict: Bool {
         (action == .bothAdded && us == .added && them == .added)
             || (action == .bothModified && us == .updatedButUnmerged && them == .updatedButUnmerged)
     }
@@ -77,7 +77,7 @@ public struct ManualConflictDetails: Sendable, Equatable, Hashable {
     public var us: GitStatusEntry
     public var them: GitStatusEntry
 
-    public init(action: UnmergedEntrySummary, us: GitStatusEntry, them: GitStatusEntry) {
+    nonisolated public init(action: UnmergedEntrySummary, us: GitStatusEntry, them: GitStatusEntry) {
         self.action = action
         self.us = us
         self.them = them
@@ -110,7 +110,7 @@ public enum AppFileStatus: Sendable, Equatable {
     case manualConflict(action: UnmergedEntrySummary, us: GitStatusEntry, them: GitStatusEntry, submoduleStatus: SubmoduleStatus?)
     case untracked(submoduleStatus: SubmoduleStatus?)
 
-    public var kind: AppFileStatusKind {
+    nonisolated public var kind: AppFileStatusKind {
         switch self {
         case .new: return .new
         case .modified: return .modified
@@ -122,9 +122,9 @@ public enum AppFileStatus: Sendable, Equatable {
         }
     }
 
-    public var isConflicted: Bool { kind == .conflicted }
+    nonisolated public var isConflicted: Bool { kind == .conflicted }
 
-    public var isConflictWithMarkers: Bool {
+    nonisolated public var isConflictWithMarkers: Bool {
         if case .conflictedWithMarkers = self { return true }
         return false
     }
@@ -136,7 +136,7 @@ public enum AppFileStatus: Sendable, Equatable {
 public struct FileChange: Sendable, Equatable, Identifiable {
     public var path: String
     public var status: AppFileStatus
-    public var id: String {
+    nonisolated public var id: String {
         switch status {
         case .copied(let oldPath, _, _): return "\(status.kind.rawValue)+\(path)+\(oldPath)"
         case .renamed(let oldPath, _, _): return "\(status.kind.rawValue)+\(path)+\(oldPath)"
@@ -144,15 +144,15 @@ public struct FileChange: Sendable, Equatable, Identifiable {
         }
     }
 
-    public init(path: String, status: AppFileStatus) {
+    nonisolated public init(path: String, status: AppFileStatus) {
         self.path = path
         self.status = status
     }
 
-    public var isDeleted: Bool { status.kind == .deleted }
-    public var isNew: Bool { status.kind == .new }
-    public var isModified: Bool { status.kind == .modified }
-    public var isUntracked: Bool { status.kind == .untracked }
+    nonisolated public var isDeleted: Bool { status.kind == .deleted }
+    nonisolated public var isNew: Bool { status.kind == .new }
+    nonisolated public var isModified: Bool { status.kind == .modified }
+    nonisolated public var isUntracked: Bool { status.kind == .untracked }
 }
 
 /// A working-directory change with commit selection. Port of `WorkingDirectoryFileChange`.
@@ -161,26 +161,26 @@ public struct WorkingDirectoryFileChange: Sendable, Equatable, Identifiable {
     public var status: AppFileStatus
     public var selection: DiffSelection
 
-    public var id: String {
+    nonisolated public var id: String {
         FileChange(path: path, status: status).id
     }
 
-    public init(path: String, status: AppFileStatus, selection: DiffSelection) {
+    nonisolated public init(path: String, status: AppFileStatus, selection: DiffSelection) {
         self.path = path
         self.status = status
         self.selection = selection
     }
 
-    public func withIncludeAll(_ include: Bool) -> WorkingDirectoryFileChange {
+    nonisolated public func withIncludeAll(_ include: Bool) -> WorkingDirectoryFileChange {
         withSelection(include ? selection.withSelectAll() : selection.withSelectNone())
     }
 
-    public func withSelection(_ selection: DiffSelection) -> WorkingDirectoryFileChange {
+    nonisolated public func withSelection(_ selection: DiffSelection) -> WorkingDirectoryFileChange {
         WorkingDirectoryFileChange(path: path, status: status, selection: selection)
     }
 
-    public var isIncludedInCommit: Bool { selection.getSelectionType() == .all }
-    public var isExcludedFromCommit: Bool { selection.getSelectionType() == .none }
+    nonisolated public var isIncludedInCommit: Bool { selection.getSelectionType() == .all }
+    nonisolated public var isExcludedFromCommit: Bool { selection.getSelectionType() == .none }
 }
 
 /// A committed change. Port of `CommittedFileChange`.
@@ -191,11 +191,11 @@ public struct CommittedFileChange: Sendable, Equatable, Identifiable {
     public var commitish: String
     public var parentCommitish: String
 
-    public var id: String {
+    nonisolated public var id: String {
         FileChange(path: path, status: status).id
     }
 
-    public init(path: String, status: AppFileStatus, commitish: String, parentCommitish: String) {
+    nonisolated public init(path: String, status: AppFileStatus, commitish: String, parentCommitish: String) {
         self.path = path
         self.status = status
         self.commitish = commitish
@@ -210,28 +210,28 @@ public struct WorkingDirectoryStatus: Sendable, Equatable {
     /// True for an empty file list (mirrors the original).
     public var includeAll: Bool?
 
-    public init(files: [WorkingDirectoryFileChange], includeAll: Bool? = true) {
+    nonisolated public init(files: [WorkingDirectoryFileChange], includeAll: Bool? = true) {
         self.files = files
         self.includeAll = includeAll
     }
 
-    public static func fromFiles(_ files: [WorkingDirectoryFileChange]) -> WorkingDirectoryStatus {
+    nonisolated public static func fromFiles(_ files: [WorkingDirectoryFileChange]) -> WorkingDirectoryStatus {
         WorkingDirectoryStatus(files: files, includeAll: includeAllState(for: files))
     }
 
-    public func withIncludeAllFiles(_ includeAll: Bool) -> WorkingDirectoryStatus {
+    nonisolated public func withIncludeAllFiles(_ includeAll: Bool) -> WorkingDirectoryStatus {
         WorkingDirectoryStatus(files: files.map { $0.withIncludeAll(includeAll) }, includeAll: includeAll)
     }
 
-    public func findFile(withID id: String) -> WorkingDirectoryFileChange? {
+    nonisolated public func findFile(withID id: String) -> WorkingDirectoryFileChange? {
         files.first(where: { $0.id == id })
     }
 
-    public func findFileIndex(withID id: String) -> Int {
+    nonisolated public func findFileIndex(withID id: String) -> Int {
         files.firstIndex(where: { $0.id == id }) ?? -1
     }
 
-    private static func includeAllState(for files: [WorkingDirectoryFileChange]) -> Bool? {
+    nonisolated private static func includeAllState(for files: [WorkingDirectoryFileChange]) -> Bool? {
         if files.isEmpty { return true }
         let allSelected = files.allSatisfy { $0.selection.getSelectionType() == .all }
         let noneSelected = files.allSatisfy { $0.selection.getSelectionType() == .none }

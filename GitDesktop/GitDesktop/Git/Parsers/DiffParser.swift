@@ -10,11 +10,11 @@ public enum DiffParserError: Error, Equatable {
 }
 
 public enum DiffParser {
-    static let hunkHeaderPattern = #"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@"#
+    nonisolated static let hunkHeaderPattern = #"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@"#
 
     /// Matches invisible bidirectional Unicode characters that may render
     /// misleadingly. Port of `HiddenBidiCharsRegex`.
-    public static func containsHiddenBidiChars(_ text: String) -> Bool {
+    nonisolated public static func containsHiddenBidiChars(_ text: String) -> Bool {
         text.unicodeScalars.contains {
             (0x202A...0x202E).contains($0.value) || (0x2066...0x2069).contains($0.value)
         }
@@ -22,7 +22,7 @@ public enum DiffParser {
 
     /// Parse `lineEndingsChange` from a diff warning line:
     /// `', CRLF will be replaced by LF the ...'`.
-    public static func parseLineEndingsChange(_ text: String) -> LineEndingsChange? {
+    nonisolated public static func parseLineEndingsChange(_ text: String) -> LineEndingsChange? {
         let pattern = #"', (CRLF|CR|LF) will be replaced by (CRLF|CR|LF) the .*"#
         guard let regex = try? NSRegularExpression(pattern: pattern),
               let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
@@ -35,7 +35,7 @@ public enum DiffParser {
         return LineEndingsChange(from: from, to: to)
     }
 
-    public static func largestLineNumber(in hunks: [DiffHunk]) -> Int {
+    nonisolated public static func largestLineNumber(in hunks: [DiffHunk]) -> Int {
         var maxNumber = 0
         for hunk in hunks {
             for line in hunk.lines {
@@ -46,11 +46,11 @@ public enum DiffParser {
         return maxNumber
     }
 
-    public static func parseHunkHeader(_ line: String) -> DiffHunkHeader? {
+    nonisolated public static func parseHunkHeader(_ line: String) -> DiffHunkHeader? {
         guard let regex = try? NSRegularExpression(pattern: hunkHeaderPattern),
               let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line))
         else { return nil }
-        func group(_ i: Int, default defaultValue: Int) -> Int {
+        nonisolated func group(_ i: Int, default defaultValue: Int) -> Int {
             let range = match.range(at: i)
             guard range.location != NSNotFound,
                   let swiftRange = Range(range, in: line)
@@ -65,7 +65,7 @@ public enum DiffParser {
     }
 
     /// Parse unified diff text into a `RawDiff`.
-    public static func parse(_ text: String) throws -> RawDiff {
+    nonisolated public static func parse(_ text: String) throws -> RawDiff {
         let lines = text.components(separatedBy: "\n")
         var index = 0
         var headerEndLine = 0

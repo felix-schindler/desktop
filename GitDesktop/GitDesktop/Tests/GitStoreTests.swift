@@ -330,7 +330,7 @@ struct FailingGitService: GitService, Sendable {
     var repositoryPath: String
     var failure: Error
 
-    init(repositoryPath: String, failure: Error) {
+    nonisolated init(repositoryPath: String, failure: Error) {
         self.repositoryPath = repositoryPath
         self.failure = failure
     }

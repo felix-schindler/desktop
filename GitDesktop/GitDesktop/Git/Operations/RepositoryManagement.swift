@@ -14,7 +14,7 @@ import Foundation
 // MARK: - Pure helpers
 
 /// Replace emoji + illegal chars with `-` (port of `sanitizedRepositoryName`).
-public func sanitizedRepositoryName(_ name: String) -> String {
+nonisolated public func sanitizedRepositoryName(_ name: String) -> String {
     var result = name
     // Emoji ranges from the reference (surrogate-pair regex). In Swift,
     // detect scalars in the same planes and replace each with "-".
@@ -35,7 +35,7 @@ public func sanitizedRepositoryName(_ name: String) -> String {
 }
 
 /// `# name\ndescription\n` default README (port of `write-default-readme.ts`).
-public func defaultReadmeContents(name: String, description: String? = nil) -> String {
+nonisolated public func defaultReadmeContents(name: String, description: String? = nil) -> String {
     if let description, !description.isEmpty {
         return "# \(name)\n\(description)\n"
     }
@@ -43,10 +43,10 @@ public func defaultReadmeContents(name: String, description: String? = nil) -> S
 }
 
 /// Transports refused for clone (port of `unsupportedCloneProtocols`).
-public let unsupportedCloneProtocols = ["ext", "ext.exe"]
+nonisolated public let unsupportedCloneProtocols = ["ext", "ext.exe"]
 
 /// Error when the URL uses a blocked transport.
-public func cloneTransportError(url: String) -> String? {
+nonisolated public func cloneTransportError(url: String) -> String? {
     for proto in unsupportedCloneProtocols where url.hasPrefix("\(proto)::") {
         return "The \"\(proto)\" transport is not supported for cloning in GitDesktop."
     }
@@ -56,7 +56,7 @@ public func cloneTransportError(url: String) -> String? {
 /// Sensitive clone destinations (port of `isClonePathSensitive`).
 /// Backstop against path traversal into `~/`, `~/.ssh`, `~/.gnupg`,
 /// `~/.config`, `~/.gitconfig`.
-public func isClonePathSensitive(_ unresolvedPath: String, homeDirectory: String? = nil) -> Bool {
+nonisolated public func isClonePathSensitive(_ unresolvedPath: String, homeDirectory: String? = nil) -> Bool {
     let home = ((homeDirectory ?? NSHomeDirectory()) as NSString).standardizingPath.lowercased()
     let clonePath = (unresolvedPath as NSString).standardizingPath.lowercased()
     if clonePath == home { return true }
@@ -75,7 +75,7 @@ public func isClonePathSensitive(_ unresolvedPath: String, homeDirectory: String
 }
 
 /// Validate a generic clone request. Returns a user-facing error or nil.
-public func validateCloneRequest(url: String, destinationPath: String) -> String? {
+nonisolated public func validateCloneRequest(url: String, destinationPath: String) -> String? {
     let trimmedURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
     if trimmedURL.isEmpty { return "Enter a repository URL to clone." }
     if let transportError = cloneTransportError(url: trimmedURL) { return transportError }
@@ -88,7 +88,7 @@ public func validateCloneRequest(url: String, destinationPath: String) -> String
 }
 
 /// Validate a create-repository request.
-public func validateCreateRepository(name: String, parentPath: String) -> String? {
+nonisolated public func validateCreateRepository(name: String, parentPath: String) -> String? {
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
     if trimmed.isEmpty { return "Enter a name for the repository." }
     if sanitizedRepositoryName(trimmed) != trimmed {
@@ -103,7 +103,7 @@ public func validateCreateRepository(name: String, parentPath: String) -> String
 /// Clone args (port of `clone()` arg construction, minus progress plumbing).
 /// `defaultBranch` falls back to the caller-provided value (reference reads
 /// `getDefaultBranch()` which itself reads `init.defaultBranch`).
-public func cloneArgs(url: String, defaultBranch: String, withProgress: Bool) -> [String] {
+nonisolated public func cloneArgs(url: String, defaultBranch: String, withProgress: Bool) -> [String] {
     var args = [
         "-c", "init.defaultBranch=\(defaultBranch)",
     ]
@@ -117,18 +117,18 @@ public func cloneArgs(url: String, defaultBranch: String, withProgress: Bool) ->
 }
 
 /// Init args (port of `initGitRepository`).
-public func initArgs(defaultBranch: String) -> [String] {
+nonisolated public func initArgs(defaultBranch: String) -> [String] {
     ["-c", "init.defaultBranch=\(defaultBranch)", "init"]
 }
 
 /// Detect a git config lock-file error (port of `isConfigFileLockError`).
-public func isConfigLockFileError(_ message: String) -> Bool {
+nonisolated public func isConfigLockFileError(_ message: String) -> Bool {
     message.contains("Unable to create") && message.contains(".lock")
 }
 
 /// Extract the lock-file path from a git error (port of
 /// `parseConfigLockFilePathFromError`).
-public func parseConfigLockFilePath(_ message: String) -> String? {
+nonisolated public func parseConfigLockFilePath(_ message: String) -> String? {
     // Matches: Unable to create '.../config.lock': File exists.
     guard let range = message.range(of: "'") else { return nil }
     let rest = message[range.upperBound...]
@@ -139,7 +139,7 @@ public func parseConfigLockFilePath(_ message: String) -> String? {
 
 /// Validate a git author name (port of `identifier-rules.ts` minimal rule:
 /// non-empty, no leading/trailing whitespace-only, no angle brackets).
-public func gitAuthorNameIsValid(_ name: String) -> Bool {
+nonisolated public func gitAuthorNameIsValid(_ name: String) -> Bool {
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return false }
     return !trimmed.contains("<") && !trimmed.contains(">")
@@ -148,7 +148,7 @@ public func gitAuthorNameIsValid(_ name: String) -> Bool {
 public let invalidGitAuthorNameMessage = "The name cannot contain < or > and must not be empty."
 
 /// Validate tab size (Appearance tab: 2/4/8 only).
-public func isValidTabSize(_ value: Int) -> Bool {
+nonisolated public func isValidTabSize(_ value: Int) -> Bool {
     [2, 4, 8].contains(value)
 }
 
@@ -171,7 +171,7 @@ public let bundledGitIgnoreNames = [
     "Rust",
 ]
 
-public func bundledGitIgnoreText(name: String) -> String? {
+nonisolated public func bundledGitIgnoreText(name: String) -> String? {
     switch name {
     case "Swift":
         return "# Swift\n.build/\n*.o\n*.d\n.DS_Store\n"
@@ -201,7 +201,7 @@ public struct LicenseTemplate: Sendable, Equatable {
     public var featured: Bool
     public var body: String
 
-    public init(name: String, featured: Bool, body: String) {
+    nonisolated public init(name: String, featured: Bool, body: String) {
         self.name = name
         self.featured = featured
         self.body = body
@@ -221,7 +221,7 @@ public let bundledLicenses: [LicenseTemplate] = [
         body: "GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\nCopyright (C) {year} {fullname}\n"),
 ]
 
-public func renderedLicense(_ template: LicenseTemplate, year: String, fullname: String, project: String, description: String, email: String) -> String {
+nonisolated public func renderedLicense(_ template: LicenseTemplate, year: String, fullname: String, project: String, description: String, email: String) -> String {
     var body = template.body
     let fields: [(token: String, value: String)] = [
         ("year", year), ("fullname", fullname), ("project", project),
@@ -245,7 +245,7 @@ public enum RepositoryTypeResult: Sendable, Equatable {
 }
 
 /// Classify `path` via `git rev-parse` (port of `getRepositoryType`).
-public func repositoryType(at path: String) async throws -> RepositoryTypeResult {
+nonisolated public func repositoryType(at path: String) async throws -> RepositoryTypeResult {
     var isDir: ObjCBool = false
     guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir) else {
         return .missing
@@ -285,7 +285,7 @@ public func repositoryType(at path: String) async throws -> RepositoryTypeResult
 }
 
 /// Resolve the working-tree toplevel (`rev-parse --show-toplevel`).
-public func toplevelForPath(_ path: String) async throws -> String? {
+nonisolated public func toplevelForPath(_ path: String) async throws -> String? {
     switch try await repositoryType(at: path) {
     case .regular(let topLevel, _): return topLevel
     case .bare, .missing, .unsafe: return nil
@@ -326,7 +326,7 @@ public func normalizeRepositoryPath(_ raw: String) -> String {
 
 /// Default branch from global `init.defaultBranch` (port of
 /// `helpers/default-branch.ts`; falls back to `main`).
-public func getDefaultBranch() async -> String {
+nonisolated public func getDefaultBranch() async -> String {
     do {
         let result = try await GitProcess.run(
             ["config", "--global", "init.defaultBranch"], workingDirectory: nil)
@@ -340,7 +340,7 @@ public func getDefaultBranch() async -> String {
 
 public enum RepositoryManagement {
     /// `git init` a new repository at `path`.
-    public static func initRepository(at path: String) async throws {
+    nonisolated public static func initRepository(at path: String) async throws {
         try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
         let branch = await getDefaultBranch()
         let result = try await GitProcess.run(initArgs(defaultBranch: branch), workingDirectory: path)
@@ -348,21 +348,21 @@ public enum RepositoryManagement {
     }
 
     /// Write the default README.
-    public static func writeDefaultReadme(at repositoryPath: String, name: String, description: String? = nil) throws {
+    nonisolated public static func writeDefaultReadme(at repositoryPath: String, name: String, description: String? = nil) throws {
         let contents = defaultReadmeContents(name: name, description: description)
         let url = URL(fileURLWithPath: (repositoryPath as NSString).appendingPathComponent("README.md"))
         try contents.write(to: url, atomically: true, encoding: .utf8)
     }
 
     /// Write a bundled gitignore (no-op for "None").
-    public static func writeGitIgnore(at repositoryPath: String, name: String) throws {
+    nonisolated public static func writeGitIgnore(at repositoryPath: String, name: String) throws {
         guard name != "None", let text = bundledGitIgnoreText(name: name) else { return }
         let url = URL(fileURLWithPath: (repositoryPath as NSString).appendingPathComponent(".gitignore"))
         try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
     /// Write a bundled license (no-op for "None").
-    public static func writeLicense(at repositoryPath: String, template: LicenseTemplate, project: String, fullname: String, email: String, description: String) throws {
+    nonisolated public static func writeLicense(at repositoryPath: String, template: LicenseTemplate, project: String, fullname: String, email: String, description: String) throws {
         guard template.name != "None" else { return }
         let year = Calendar.current.component(.year, from: Date()).description
         let body = renderedLicense(template, year: year, fullname: fullname, project: project, description: description, email: email)
@@ -375,7 +375,7 @@ public enum RepositoryManagement {
     /// Cancellation-aware (Task 15): cancelling the caller's `Task`
     /// terminates the underlying `git clone` process via
     /// `GitProcess.runCancellable` and throws `CancellationError`.
-    public static func clone(
+    nonisolated public static func clone(
         url: String,
         destinationPath: String,
         branch: String? = nil,
@@ -410,7 +410,7 @@ public enum RepositoryManagement {
     }
 
     /// Read a config value (local by default; global when `repositoryPath` is nil).
-    public static func configValue(name: String, repositoryPath: String?, onlyLocal: Bool = false) async throws -> String? {
+    nonisolated public static func configValue(name: String, repositoryPath: String?, onlyLocal: Bool = false) async throws -> String? {
         var args = ["config", "-z"]
         if repositoryPath == nil {
             args.append("--global")
@@ -426,7 +426,7 @@ public enum RepositoryManagement {
     }
 
     /// Set a config value (global when `repositoryPath` is nil).
-    public static func setConfigValue(_ value: String, name: String, repositoryPath: String?) async throws {
+    nonisolated public static func setConfigValue(_ value: String, name: String, repositoryPath: String?) async throws {
         var args = ["config"]
         args.append(repositoryPath == nil ? "--global" : "--local")
         args += [name, value]
@@ -435,7 +435,7 @@ public enum RepositoryManagement {
     }
 
     /// Set the primary remote URL (`git remote set-url origin <url>`).
-    public static func setRemoteURL(repositoryPath: String, name: String, url: String) async throws {
+    nonisolated public static func setRemoteURL(repositoryPath: String, name: String, url: String) async throws {
         try await GitDesktop.setRemoteURL(repositoryPath: repositoryPath, name: name, url: url)
     }
 }
@@ -444,10 +444,10 @@ public enum RepositoryManagement {
 
 /// Tutorial repo scaffolding (port of `CreateTutorialRepositoryDialog` flow).
 public enum TutorialRepository {
-    public static let defaultName = "Tutorial"
+    nonisolated public static let defaultName = "Tutorial"
 
     /// Create a tutorial repo at `parentPath/name` with a README + initial commit.
-    public static func create(at parentPath: String, name: String = defaultName) async throws -> String {
+    nonisolated public static func create(at parentPath: String, name: String = defaultName) async throws -> String {
         let path = (parentPath as NSString).appendingPathComponent(name)
         try await RepositoryManagement.initRepository(at: path)
         try RepositoryManagement.writeDefaultReadme(at: path, name: name, description: "A tutorial repository for learning GitDesktop.")
@@ -473,7 +473,7 @@ public enum DroppedPathAction: Sendable, Equatable {
 
 /// Resolve dropped file URLs against known repositories.
 /// - `toplevels`: maps a dropped path to its resolved toplevel (nil = not a repo).
-public func resolveDroppedPaths(
+nonisolated public func resolveDroppedPaths(
     _ paths: [String],
     isDirectory: (String) -> Bool,
     toplevel: (String) -> String?,

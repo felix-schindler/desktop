@@ -16,7 +16,7 @@ public struct RepositoryStatus: Sendable, Equatable {
     public var isCherryPicking: Bool
     public var doConflictedFilesExist: Bool
 
-    public init(
+    nonisolated public init(
         headers: StatusParser.StatusHeaders,
         workingDirectory: WorkingDirectoryStatus,
         mergeHeadFound: Bool = false,
@@ -80,7 +80,7 @@ public protocol GitService: Sendable {
 public struct LiveGitService: GitService, Sendable {
     public var repositoryPath: String
 
-    public init(repositoryPath: String) {
+    nonisolated public init(repositoryPath: String) {
         self.repositoryPath = repositoryPath
     }
 
@@ -348,41 +348,44 @@ public struct LiveGitService: GitService, Sendable {
 /// In-memory fake for Previews and Tasks 2–8 UI work.
 public final class MockGitService: GitService, Sendable {
     public let repositoryPath: String
-    public var stubStatus: RepositoryStatus?
-    public var stubCommits: [Commit]
-    public var stubBranches: [Branch]
-    public var stubRemotes: [Remote]
-    public private(set) var stagedPaths: [String] = []
-    public private(set) var committedContexts: [CommitContext] = []
-    public var stubStashes: [StashEntry] = []
-    public var stubStashTotalCount: Int = 0
-    public var stubStashedFiles: [String: [CommittedFileChange]] = [:]
-    public var stubTags: [String: String] = [:]
-    public var stubWorktrees: [WorktreeEntry] = []
-    public var stubSubmodules: [SubmoduleEntry] = []
-    public var stubGitIgnore: String? = nil
-    public var stubUsingLFS: Bool = false
-    public private(set) var droppedStashSHAs: [String] = []
-    public private(set) var poppedStashSHAs: [String] = []
-    public private(set) var createdTags: [(name: String, sha: String)] = []
-    public private(set) var deletedTags: [String] = []
-    public private(set) var undoneCommits: [String] = []
-    public private(set) var resets: [(mode: GitResetMode, ref: String)] = []
-    public private(set) var reverts: [(sha: String, parentCount: Int)] = []
-    public private(set) var checkouts: [String] = []
+    // Test-only mutable state: accessed from both MainActor previews/tests and
+    // nonisolated SyncOperations methods (Swift 6). Serialized by the owning
+    // GitStore actor in production paths; previews/tests are single-threaded.
+    nonisolated(unsafe) public var stubStatus: RepositoryStatus?
+    nonisolated(unsafe) public var stubCommits: [Commit]
+    nonisolated(unsafe) public var stubBranches: [Branch]
+    nonisolated(unsafe) public var stubRemotes: [Remote]
+    nonisolated(unsafe) public private(set) var stagedPaths: [String] = []
+    nonisolated(unsafe) public private(set) var committedContexts: [CommitContext] = []
+    nonisolated(unsafe) public var stubStashes: [StashEntry] = []
+    nonisolated(unsafe) public var stubStashTotalCount: Int = 0
+    nonisolated(unsafe) public var stubStashedFiles: [String: [CommittedFileChange]] = [:]
+    nonisolated(unsafe) public var stubTags: [String: String] = [:]
+    nonisolated(unsafe) public var stubWorktrees: [WorktreeEntry] = []
+    nonisolated(unsafe) public var stubSubmodules: [SubmoduleEntry] = []
+    nonisolated(unsafe) public var stubGitIgnore: String? = nil
+    nonisolated(unsafe) public var stubUsingLFS: Bool = false
+    nonisolated(unsafe) public private(set) var droppedStashSHAs: [String] = []
+    nonisolated(unsafe) public private(set) var poppedStashSHAs: [String] = []
+    nonisolated(unsafe) public private(set) var createdTags: [(name: String, sha: String)] = []
+    nonisolated(unsafe) public private(set) var deletedTags: [String] = []
+    nonisolated(unsafe) public private(set) var undoneCommits: [String] = []
+    nonisolated(unsafe) public private(set) var resets: [(mode: GitResetMode, ref: String)] = []
+    nonisolated(unsafe) public private(set) var reverts: [(sha: String, parentCount: Int)] = []
+    nonisolated(unsafe) public private(set) var checkouts: [String] = []
     // MARK: Task 14 — sync recording (menu/toolbar action tests)
     /// Remotes passed to `fetch` / `pull`, in call order. Plain `var` (like
     /// the other stubs) so the `SyncOperations` extension in `Sync.swift`
     /// can record — `private(set)` is file-scoped and would not compile there.
-    public var fetchedRemotes: [String] = []
-    public var pulledRemotes: [String] = []
+    nonisolated(unsafe) public var fetchedRemotes: [String] = []
+    nonisolated(unsafe) public var pulledRemotes: [String] = []
     /// `(remote, localBranch, remoteBranch)` per `push` call.
-    public var pushedBranches: [(remote: String, localBranch: String, remoteBranch: String?)] = []
+    nonisolated(unsafe) public var pushedBranches: [(remote: String, localBranch: String, remoteBranch: String?)] = []
     /// When set, `fetch`/`pull`/`push` throw this instead of succeeding
     /// (sync error-mapping tests; production failures come from git).
-    public var syncFailure: GitError?
+    nonisolated(unsafe) public var syncFailure: GitError?
 
-    public init(
+    nonisolated public init(
         repositoryPath: String = "/tmp/mock-repo",
         stubStatus: RepositoryStatus? = nil,
         stubCommits: [Commit] = [],
@@ -521,7 +524,7 @@ public final class MockGitService: GitService, Sendable {
 
 extension MockGitService {
     /// Preview-friendly mock with two changed files and two commits.
-    public static var preview: MockGitService {
+    nonisolated public static var preview: MockGitService {
         let identity = CommitIdentity(
             name: "Ada Lovelace", email: "ada@example.com",
             date: Date(timeIntervalSince1970: 1_700_000_000), tzOffset: 0)

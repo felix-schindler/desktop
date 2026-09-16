@@ -81,7 +81,7 @@ public struct GitError: Error, Sendable {
     public var stderr: String
     public var exitCode: Int32
 
-    public init(kind: GitErrorKind?, args: [String], stdout: String, stderr: String, exitCode: Int32) {
+    nonisolated public init(kind: GitErrorKind?, args: [String], stdout: String, stderr: String, exitCode: Int32) {
         self.kind = kind
         self.args = args
         self.stdout = stdout
@@ -91,7 +91,7 @@ public struct GitError: Error, Sendable {
 
     /// User-facing description, or nil when the caller should show raw stderr.
     /// Mirrors `getDescriptionForError` in `core.ts` (abridged for Task 1).
-    public var userDescription: String? {
+    nonisolated public var userDescription: String? {
         switch kind {
         case .httpsAuthenticationFailed, .sshAuthenticationFailed, .sshPermissionDenied:
             return "Authentication failed. Check your credentials and try again."
@@ -128,7 +128,7 @@ public struct GitError: Error, Sendable {
         }
     }
 
-    public var displayMessage: String {
+    nonisolated public var displayMessage: String {
         userDescription ?? GitProcess.terminalTail(stderr.isEmpty ? stdout : stderr)
     }
 }
@@ -140,7 +140,7 @@ private struct GitErrorPattern {
 }
 
 // Verbatim port of the dugite `GitErrorRegexes` table.
-private let gitErrorPatterns: [GitErrorPattern] = [
+nonisolated private let gitErrorPatterns: [GitErrorPattern] = [
     .init(kind: .badConfigValue, pattern: #"fatal: bad (?:numeric|boolean) config value '(.+)' for '(.+)'"#),
     .init(kind: .sshKeyAuditUnverified, pattern: #"ERROR: ([\s\S]+?)\n+\[EPOLICYKEYAGE\]\n+fatal: Could not read from remote repository\."#),
     .init(kind: .httpsAuthenticationFailed, pattern: #"fatal: Authentication failed for 'https?://"#),
@@ -207,7 +207,7 @@ private let gitErrorPatterns: [GitErrorPattern] = [
 ]
 
 /// Matches terminal output against the taxonomy. Mirrors dugite `parseError`.
-public func parseGitError(_ text: String) -> GitErrorKind? {
+nonisolated public func parseGitError(_ text: String) -> GitErrorKind? {
     for entry in gitErrorPatterns {
         guard let regex = try? NSRegularExpression(pattern: entry.pattern, options: entry.options) else { continue }
         let range = NSRange(text.startIndex..., in: text)
@@ -220,7 +220,7 @@ public func parseGitError(_ text: String) -> GitErrorKind? {
 
 /// Classify a completed git invocation (stderr first, then stdout),
 /// returning nil when the exit code counts as success.
-public func classifyGitResult(_ result: GitResult, args: [String], successExitCodes: Set<Int32> = [0]) -> GitError? {
+nonisolated public func classifyGitResult(_ result: GitResult, args: [String], successExitCodes: Set<Int32> = [0]) -> GitError? {
     guard !successExitCodes.contains(result.exitCode) else { return nil }
     let kind = parseGitError(result.stderrString) ?? parseGitError(result.stdoutString)
     return GitError(
@@ -232,7 +232,7 @@ public func classifyGitResult(_ result: GitResult, args: [String], successExitCo
 }
 
 /// Extract the `path` from a `could not lock config file <path>: File exists` error.
-public func configLockFilePath(from stderr: String) -> String? {
+nonisolated public func configLockFilePath(from stderr: String) -> String? {
     let pattern = #"^error: could not lock config file (.+?): File exists$"#
     guard let regex = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]),
           let match = regex.firstMatch(in: stderr, range: NSRange(stderr.startIndex..., in: stderr)),
@@ -246,7 +246,7 @@ public func configLockFilePath(from stderr: String) -> String? {
 /// Port of `parseCommitSHA` in `core.ts`. Root commits print
 /// `[branch (root-commit) sha]`, so the SHA is the first hex token rather
 /// than unconditionally the second whitespace-separated part.
-public func parseCommitSHA(_ stdout: String) -> String? {
+nonisolated public func parseCommitSHA(_ stdout: String) -> String? {
     let bracket = stdout.split(separator: "]", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? stdout
     let parts = bracket.split(separator: " ")
     guard parts.count >= 2 else { return nil }

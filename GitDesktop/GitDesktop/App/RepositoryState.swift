@@ -15,7 +15,7 @@ public struct ChangesSelection: Sendable, Equatable {
     public var selectedFileIDs: [String]
     public var selectedStashedFileID: String?
 
-    public init(
+    nonisolated public init(
         kind: ChangesSelectionKind = .workingDirectory,
         selectedFileIDs: [String] = [],
         selectedStashedFileID: String? = nil
@@ -50,7 +50,7 @@ public struct RepositoryState: Sendable, Equatable, Identifiable {
     /// `findDefaultBranch`). Used by branch list grouping + merge targets.
     public var defaultBranch: Branch?
 
-    public init(
+    nonisolated public init(
         repository: Repository,
         workingDirectory: WorkingDirectoryStatus = WorkingDirectoryStatus(files: []),
         tip: Tip = .unknown,
@@ -76,5 +76,5 @@ public struct RepositoryState: Sendable, Equatable, Identifiable {
         self.defaultBranch = defaultBranch
     }
 
-    public var id: Int { repository.id }
+    nonisolated public var id: Int { repository.id }
 }

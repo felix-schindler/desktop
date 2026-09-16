@@ -32,13 +32,13 @@ public struct LineEndingsChange: Codable, Sendable, Equatable {
     public var from: LineEnding
     public var to: LineEnding
 
-    public init(from: LineEnding, to: LineEnding) {
+    nonisolated public init(from: LineEnding, to: LineEnding) {
         self.from = from
         self.to = to
     }
 }
 
-public func parseLineEndingText(_ text: String) -> LineEnding? {
+nonisolated public func parseLineEndingText(_ text: String) -> LineEnding? {
     switch text.trimmingCharacters(in: .whitespaces) {
     case "CR": return .cr
     case "LF": return .lf
@@ -67,7 +67,7 @@ public struct DiffLine: Sendable, Equatable {
     public var newLineNumber: Int?
     public var noTrailingNewLine: Bool
 
-    public init(
+    nonisolated public init(
         text: String,
         type: DiffLineType,
         originalLineNumber: Int?,
@@ -83,7 +83,7 @@ public struct DiffLine: Sendable, Equatable {
         self.noTrailingNewLine = noTrailingNewLine
     }
 
-    public func withNoTrailingNewLine(_ value: Bool) -> DiffLine {
+    nonisolated public func withNoTrailingNewLine(_ value: Bool) -> DiffLine {
         DiffLine(
             text: text, type: type,
             originalLineNumber: originalLineNumber,
@@ -91,12 +91,12 @@ public struct DiffLine: Sendable, Equatable {
             noTrailingNewLine: value)
     }
 
-    public var isIncludeableLine: Bool {
+    nonisolated public var isIncludeableLine: Bool {
         type == .add || type == .delete
     }
 
     /// Line content without the leading `+`/`-`/` `/`@@` marker.
-    public var content: String {
+    nonisolated public var content: String {
         guard !text.isEmpty else { return text }
         return String(text.dropFirst())
     }
@@ -109,14 +109,14 @@ public struct DiffHunkHeader: Sendable, Equatable {
     public var newStartLine: Int
     public var newLineCount: Int
 
-    public init(oldStartLine: Int, oldLineCount: Int, newStartLine: Int, newLineCount: Int) {
+    nonisolated public init(oldStartLine: Int, oldLineCount: Int, newStartLine: Int, newLineCount: Int) {
         self.oldStartLine = oldStartLine
         self.oldLineCount = oldLineCount
         self.newStartLine = newStartLine
         self.newLineCount = newLineCount
     }
 
-    public func toDiffLineRepresentation() -> String {
+    nonisolated public func toDiffLineRepresentation() -> String {
         "@@ -\(oldStartLine),\(oldLineCount) +\(newStartLine),\(newLineCount) @@"
     }
 }
@@ -137,7 +137,7 @@ public struct DiffHunk: Sendable, Equatable {
     public var unifiedDiffEnd: Int
     public var expansionType: DiffHunkExpansionType
 
-    public init(
+    nonisolated public init(
         header: DiffHunkHeader,
         lines: [DiffLine],
         unifiedDiffStart: Int,
@@ -161,7 +161,7 @@ public struct RawDiff: Sendable, Equatable {
     public var maxLineNumber: Int
     public var hasHiddenBidiChars: Bool
 
-    public init(
+    nonisolated public init(
         header: String,
         contents: String,
         hunks: [DiffHunk],
@@ -199,17 +199,17 @@ public struct DiffSelection: Sendable, Equatable {
     private var divergingLines: Set<Int>?
     private var selectableLines: Set<Int>?
 
-    public static func fromInitialSelection(_ initial: InitialSelection) -> DiffSelection {
+    nonisolated public static func fromInitialSelection(_ initial: InitialSelection) -> DiffSelection {
         switch initial {
         case .all: return DiffSelection(defaultSelectionType: .all)
         case .none: return DiffSelection(defaultSelectionType: .none)
         }
     }
 
-    public static var all: DiffSelection { fromInitialSelection(.all) }
-    public static var none: DiffSelection { fromInitialSelection(.none) }
+    nonisolated public static var all: DiffSelection { fromInitialSelection(.all) }
+    nonisolated public static var none: DiffSelection { fromInitialSelection(.none) }
 
-    private init(
+    nonisolated private init(
         defaultSelectionType: DiffSelectionType,
         divergingLines: Set<Int>? = nil,
         selectableLines: Set<Int>? = nil
@@ -219,7 +219,7 @@ public struct DiffSelection: Sendable, Equatable {
         self.selectableLines = selectableLines
     }
 
-    public func getSelectionType() -> DiffSelectionType {
+    nonisolated public func getSelectionType() -> DiffSelectionType {
         guard let diverging = divergingLines, !diverging.isEmpty else {
             return defaultSelectionType
         }
@@ -231,7 +231,7 @@ public struct DiffSelection: Sendable, Equatable {
         return .partial
     }
 
-    public func isSelected(lineIndex: Int) -> Bool {
+    nonisolated public func isSelected(lineIndex: Int) -> Bool {
         let divergent = divergingLines?.contains(lineIndex) ?? false
         switch defaultSelectionType {
         case .all: return !divergent
@@ -240,7 +240,7 @@ public struct DiffSelection: Sendable, Equatable {
         }
     }
 
-    public func isRangeSelected(from: Int, length: Int) -> DiffSelectionType {
+    nonisolated public func isRangeSelected(from: Int, length: Int) -> DiffSelectionType {
         guard length > 0 else { return .none }
         let computed = getSelectionType()
         guard computed == .partial else { return computed }
@@ -256,11 +256,11 @@ public struct DiffSelection: Sendable, Equatable {
         return .none
     }
 
-    public func isSelectable(lineIndex: Int) -> Bool {
+    nonisolated public func isSelectable(lineIndex: Int) -> Bool {
         selectableLines?.contains(lineIndex) ?? true
     }
 
-    public func withLineSelection(lineIndex: Int, selected: Bool) -> DiffSelection {
+    nonisolated public func withLineSelection(lineIndex: Int, selected: Bool) -> DiffSelection {
         var diverging = divergingLines ?? Set<Int>()
         let currentlySelected = isSelected(lineIndex: lineIndex)
         if selected == currentlySelected { return self }
@@ -272,7 +272,7 @@ public struct DiffSelection: Sendable, Equatable {
             selectableLines: selectableLines)
     }
 
-    public func withRangeSelection(from: Int, length: Int, selected: Bool) -> DiffSelection {
+    nonisolated public func withRangeSelection(from: Int, length: Int, selected: Bool) -> DiffSelection {
         var copy = self
         for i in from..<(from + length) {
             copy = copy.withLineSelection(lineIndex: i, selected: selected)
@@ -280,25 +280,25 @@ public struct DiffSelection: Sendable, Equatable {
         return copy
     }
 
-    public func withToggleLineSelection(lineIndex: Int) -> DiffSelection {
+    nonisolated public func withToggleLineSelection(lineIndex: Int) -> DiffSelection {
         withLineSelection(lineIndex: lineIndex, selected: !isSelected(lineIndex: lineIndex))
     }
 
-    public func withSelectAll() -> DiffSelection {
+    nonisolated public func withSelectAll() -> DiffSelection {
         DiffSelection(
             defaultSelectionType: .all,
             divergingLines: Set<Int>(),
             selectableLines: selectableLines)
     }
 
-    public func withSelectNone() -> DiffSelection {
+    nonisolated public func withSelectNone() -> DiffSelection {
         DiffSelection(
             defaultSelectionType: .none,
             divergingLines: Set<Int>(),
             selectableLines: selectableLines)
     }
 
-    public func withSelectableLines(_ lines: Set<Int>) -> DiffSelection {
+    nonisolated public func withSelectableLines(_ lines: Set<Int>) -> DiffSelection {
         DiffSelection(
             defaultSelectionType: defaultSelectionType,
             divergingLines: divergingLines,
@@ -314,7 +314,7 @@ public struct DiffImage: Sendable, Equatable {
     public var mediaType: String
     public var bytes: Int
 
-    public init(base64Contents: String, mediaType: String, bytes: Int) {
+    nonisolated public init(base64Contents: String, mediaType: String, bytes: Int) {
         self.base64Contents = base64Contents
         self.mediaType = mediaType
         self.bytes = bytes
@@ -338,7 +338,7 @@ public struct TextDiffData: Sendable, Equatable {
     public var maxLineNumber: Int
     public var hasHiddenBidiChars: Bool
 
-    public init(
+    nonisolated public init(
         text: String,
         hunks: [DiffHunk],
         lineEndingsChange: LineEndingsChange? = nil,
@@ -361,7 +361,7 @@ public struct SubmoduleDiffData: Sendable, Equatable {
     public var oldSHA: String?
     public var newSHA: String?
 
-    public init(
+    nonisolated public init(
         fullPath: String,
         path: String,
         url: String?,
@@ -387,7 +387,7 @@ public enum Diff: Sendable, Equatable {
     case largeText(TextDiffData)
     case unrenderable
 
-    public var type: DiffType {
+    nonisolated public var type: DiffType {
         switch self {
         case .text: return .text
         case .image: return .image

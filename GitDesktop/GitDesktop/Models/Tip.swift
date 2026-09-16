@@ -7,7 +7,7 @@ public enum Tip: Sendable, Equatable {
     case detached(currentSha: String)
     case valid(branch: Branch)
 
-    public var kind: TipState {
+    nonisolated public var kind: TipState {
         switch self {
         case .unknown: return .unknown
         case .unborn: return .unborn
@@ -24,7 +24,7 @@ public enum TipState: String, Codable, Sendable {
     case valid = "Valid"
 }
 
-public func tipEquals(_ x: Tip, _ y: Tip) -> Bool {
+nonisolated public func tipEquals(_ x: Tip, _ y: Tip) -> Bool {
     switch (x, y) {
     case (.unknown, .unknown): return true
     case (.unborn(let a), .unborn(let b)): return a == b

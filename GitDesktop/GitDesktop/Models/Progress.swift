@@ -11,14 +11,14 @@ public struct ProgressPayload: Sendable, Equatable {
     public var title: String?
     public var description: String?
 
-    public init(value: Double, title: String? = nil, description: String? = nil) {
+    nonisolated public init(value: Double, title: String? = nil, description: String? = nil) {
         self.value = clampProgress(value)
         self.title = title
         self.description = description
     }
 }
 
-public func clampProgress(_ value: Double) -> Double {
+nonisolated public func clampProgress(_ value: Double) -> Double {
     min(1, max(0, value))
 }
 
@@ -35,7 +35,7 @@ public enum AppProgress: Sendable, Equatable {
     case revert(ProgressPayload)
     case multiCommitOperation(currentCommitSummary: String, position: Int, totalCommitCount: Int, payload: ProgressPayload)
 
-    public var value: Double {
+    nonisolated public var value: Double {
         switch self {
         case .generic(let p): return p.value
         case .checkout(_, let p): return p.value
@@ -48,7 +48,7 @@ public enum AppProgress: Sendable, Equatable {
         }
     }
 
-    public var title: String? {
+    nonisolated public var title: String? {
         switch self {
         case .generic(let p): return p.title
         case .checkout(_, let p): return p.title
@@ -73,7 +73,7 @@ public struct CloneOptions: Sendable, Equatable {
     public var branch: String?
     public var defaultBranch: String?
 
-    public init(branch: String? = nil, defaultBranch: String? = nil) {
+    nonisolated public init(branch: String? = nil, defaultBranch: String? = nil) {
         self.branch = branch
         self.defaultBranch = defaultBranch
     }

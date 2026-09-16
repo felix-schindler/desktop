@@ -14,7 +14,7 @@ public struct Repository: Identifiable, Hashable, Sendable {
     public var gitDir: String?
     public var mainWorktreePath: String?
 
-    public init(
+    nonisolated public init(
         path: String,
         id: Int,
         missing: Bool = false,
@@ -36,14 +36,14 @@ public struct Repository: Identifiable, Hashable, Sendable {
 
     /// Display name: alias if set, else the basename of the path.
     /// (Original fell back to the GitHub repo name; that source is deleted.)
-    public var name: String {
+    nonisolated public var name: String {
         if let alias, !alias.isEmpty { return alias }
         let base = (path as NSString).lastPathComponent
         return base.isEmpty ? path : base
     }
 
     /// Structural hash used for equality checks and state-cache keys.
-    public var hash: String {
+    nonisolated public var hash: String {
         [
             path,
             String(id),
@@ -55,15 +55,15 @@ public struct Repository: Identifiable, Hashable, Sendable {
     }
 
     /// Resolved path to the `.git` directory.
-    public var resolvedGitDir: String {
+    nonisolated public var resolvedGitDir: String {
         gitDir ?? (path as NSString).appendingPathComponent(".git")
     }
 
-    public func hash(into hasher: inout Hasher) {
+    nonisolated public func hash(into hasher: inout Hasher) {
         hasher.combine(hash)
     }
 
-    public static func == (lhs: Repository, rhs: Repository) -> Bool {
+    nonisolated public static func == (lhs: Repository, rhs: Repository) -> Bool {
         lhs.hash == rhs.hash
     }
 }
@@ -73,7 +73,7 @@ public struct LocalRepositoryState: Sendable, Equatable {
     public var aheadBehind: AheadBehind?
     public var changedFilesCount: Int
 
-    public init(aheadBehind: AheadBehind? = nil, changedFilesCount: Int = 0) {
+    nonisolated public init(aheadBehind: AheadBehind? = nil, changedFilesCount: Int = 0) {
         self.aheadBehind = aheadBehind
         self.changedFilesCount = changedFilesCount
     }

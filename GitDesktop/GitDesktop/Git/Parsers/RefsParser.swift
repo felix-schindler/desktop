@@ -13,7 +13,7 @@ public struct RefRow: Sendable, Equatable {
     public var sha: String
     public var symRef: String
 
-    public init(fullName: String, shortName: String, upstreamShortName: String, sha: String, symRef: String) {
+    nonisolated public init(fullName: String, shortName: String, upstreamShortName: String, sha: String, symRef: String) {
         self.fullName = fullName
         self.shortName = shortName
         self.upstreamShortName = upstreamShortName
@@ -26,7 +26,7 @@ public enum RefsParser {
     /// Parse `for-each-ref --format=%00<fields>%00`-style output.
     /// Mirrors `createForEachRefParser` in `git-delimiter-parser.ts`:
     /// records are NUL-separated with `\n` sentinels between entries.
-    public static func parseForEachRef(_ output: String, fieldCount: Int) -> [[String]] {
+    nonisolated public static func parseForEachRef(_ output: String, fieldCount: Int) -> [[String]] {
         let records = output.components(separatedBy: "\0")
         var entries: [[String]] = []
         var current: [String] = []
@@ -53,7 +53,7 @@ public enum RefsParser {
 
     /// Build `Branch` values from parsed ref rows.
     /// Skips symbolic refs (e.g. `origin/HEAD`), mirroring `getBranches`.
-    public static func branches(from rows: [RefRow]) -> [Branch] {
+    nonisolated public static func branches(from rows: [RefRow]) -> [Branch] {
         rows.compactMap { row in
             guard row.symRef.isEmpty else { return nil }
             let type: BranchType = row.fullName.hasPrefix("refs/heads") ? .local : .remote
@@ -68,20 +68,20 @@ public enum RefsParser {
     }
 
     /// Format a short branch name as a local ref. Port of `formatAsLocalRef`.
-    public static func formatAsLocalRef(_ name: String) -> String {
+    nonisolated public static func formatAsLocalRef(_ name: String) -> String {
         if name.hasPrefix("refs/heads/") { return name }
         if name.hasPrefix("heads/") { return "refs/\(name)" }
         return "refs/heads/\(name)"
     }
 
     /// Parse `git symbolic-ref -q <ref>` output (nil for exit 1/128).
-    public static func parseSymbolicRef(_ stdout: String) -> String? {
+    nonisolated public static func parseSymbolicRef(_ stdout: String) -> String? {
         let trimmed = stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
     /// Parse `git worktree list --porcelain -z` output.
-    public static func parseWorktrees(_ output: String) -> [WorktreeEntry] {
+    nonisolated public static func parseWorktrees(_ output: String) -> [WorktreeEntry] {
         // Records are NUL-separated; blank line (double NUL) separates worktrees.
         // Fields: `worktree <path>`, `HEAD <sha>`, `branch <ref>`|detached,
         // `bare`, `locked [reason]`, `prunable <reason>`.

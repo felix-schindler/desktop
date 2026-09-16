@@ -14,7 +14,7 @@ public struct GitProgressStep: Sendable, Equatable {
     public var title: String
     public var weight: Double
 
-    public init(title: String, weight: Double) {
+    nonisolated public init(title: String, weight: Double) {
         self.title = title
         self.weight = weight
     }
@@ -34,7 +34,7 @@ public struct GitProgressInfo: Sendable, Equatable {
     /// Untouched raw line for user-facing descriptions.
     public var text: String
 
-    public init(
+    nonisolated public init(
         title: String,
         value: Double,
         total: Double? = nil,
@@ -60,7 +60,7 @@ public enum GitProgressEvent: Sendable, Equatable {
 }
 
 /// Strip ANSI/VT control sequences (mirrors `stripVTControlCharacters`).
-public func stripANSIControlCharacters(_ line: String) -> String {
+nonisolated public func stripANSIControlCharacters(_ line: String) -> String {
     guard line.contains("\u{1B}") else { return line }
     guard let regex = try? NSRegularExpression(pattern: "\u{1B}\\[[0-9;?]*[ -/]*[@-~]") else {
         return line
@@ -77,7 +77,7 @@ public func stripANSIControlCharacters(_ line: String) -> String {
 /// - `Checking out files:  100% (728/728), done` → `done == true`
 ///
 /// Returns nil when the line is not a git progress line.
-public func parseGitProgressLine(_ line: String) -> GitProgressInfo? {
+nonisolated public func parseGitProgressLine(_ line: String) -> GitProgressInfo? {
     // Title is everything up to the last `: ` (see git's `progress.c`).
     guard let separator = line.range(of: ": ", options: .backwards),
           separator.lowerBound != line.startIndex
@@ -116,12 +116,12 @@ public func parseGitProgressLine(_ line: String) -> GitProgressInfo? {
 }
 
 /// `/^\d+$/`: ASCII digits only (mirrors `valueOnlyRe`).
-private func isValueOnlyProgress(_ text: String) -> Bool {
+nonisolated private func isValueOnlyProgress(_ text: String) -> Bool {
     !text.isEmpty && text.allSatisfy { $0.isASCII && $0.isNumber }
 }
 
 /// `/^(\d{1,3})% \((\d+)\/(\d+)\)$/` without regex.
-private func parsePercentProgress(_ text: String) -> (percent: Int, value: Double, total: Double)? {
+nonisolated private func parsePercentProgress(_ text: String) -> (percent: Int, value: Double, total: Double)? {
     guard let pctEnd = text.firstIndex(of: "%") else { return nil }
     let pctText = String(text[..<pctEnd])
     guard pctText.count >= 1 && pctText.count <= 3,
@@ -149,7 +149,7 @@ public struct GitProgressParser: Sendable {
     public private(set) var stepIndex: Int = 0
     public private(set) var lastPercent: Double = 0
 
-    public init(steps: [GitProgressStep]) {
+    nonisolated public init(steps: [GitProgressStep]) {
         let total = steps.reduce(0) { $0 + $1.weight }
         guard total > 0 else {
             self.steps = []
@@ -158,7 +158,7 @@ public struct GitProgressParser: Sendable {
         self.steps = steps.map { GitProgressStep(title: $0.title, weight: $0.weight / total) }
     }
 
-    public mutating func parse(line: String) -> GitProgressEvent {
+    nonisolated public mutating func parse(line: String) -> GitProgressEvent {
         let text = stripANSIControlCharacters(line)
         guard let progress = parseGitProgressLine(text) else {
             return .context(text: text, percent: lastPercent)
@@ -189,7 +189,7 @@ public extension AppProgress {
     /// stash the last raw git line here via this accessor's backing store.
     /// In practice callers construct the payload with `description` set and
     /// read it back through `progressDescription(_:)`.
-    var progressDescription: String? {
+    nonisolated var progressDescription: String? {
         switch self {
         case .generic(let p): return p.description
         case .checkout(_, let p): return p.description
