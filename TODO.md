@@ -684,3 +684,55 @@ Running notes for later PLAN.md tasks. Append, don't rewrite history.
   `App/*` + `SettingsView` (for `SettingsDraft`) + `RepositoryDialogs`
   (for `LabeledField`) + `CloneDispatcher` + `Task15Tests`.
 - No GH / editor / Copilot / theme / notification code anywhere (scope bans).
+
+## Task 16 — end-to-end fixture pass (`task/16-fixture-pass`)
+
+- **Script:** `/tmp` scratch harnesses (not committed) drove `LiveGitService`
+  + `GitStore` + `MenuActionRouter` + `ShellPipelineActions` +
+  `RepositoryDetailLoading` on temp fixture repos: add → stage → commit →
+  branch → merge clean (FF) + conflict/abort → push/fetch/pull to a `file://`
+  bare remote, stash/tag/worktree round trips, detail loaders, and the
+  Task 10 menu/shortcut inventory. `xcrun swiftc -module-name GitDesktop
+  $(find GitDesktop/GitDesktop -name "*.swift" ! -name "MyApp.swift") <main>
+  -o <bin>` compiles the whole app minus `@main` into the harness.
+- **Harness gotcha (new):** `Task15Tests.runAll()` is sync but pumps
+  `RunLoop.main` internally — calling it from inside `Task { @MainActor }`
+  deadlocks. Run it standalone (top-level, non-isolated) and keep the
+  `@MainActor` suites (`GitStoreTests`, `Task14Tests`,
+  `RepositoryDetailTests`, `Task16Tests`) in a separate binary using the
+  `Task { @MainActor … }; dispatchMain()` pattern. Pure suites can share
+  either binary but must also be called from a `@MainActor` context
+  (target compiles with `-default-isolation=MainActor`).
+- **Fixes (all additive, each with `Tests/Task16Tests.swift` regressions):**
+  1. `menuPull` on a branch with no upstream posted raw git stderr
+     ("did not specify a branch…"). Now guarded with friendly
+     `pullUpstreamMessage(branchName:)`; toolbar never offered Pull there
+     (shows Publish instead). `menuFetch` needs no upstream — untouched.
+  2. `shellCheckoutBranch` dirty-WD conflicts posted a bare `.error`. Now
+     maps `.localChangesOverwritten`/`.mergeWithLocalChanges`/
+     `.rebaseWithLocalChanges` via pure `checkoutConflictPopup` to the
+     bespoke `.localChangesOverwritten` sheet (file list); everything else
+     still goes through `routeRefreshFailure` (Missing routing preserved).
+  3. `shellSwitchWorktree` compared raw path strings, so a
+     symlink-resolved worktree path (`/private/var/…` from git vs `/tmp/…`
+     stored) added a duplicate repo. Now compares `canonicalRepoPath`
+     (`resolvingSymlinksInPath`) in both the self-check and the
+     existing-repo lookup.
+  4. `performSyncPipelineMutation` swallowed conflict errors (they map to no
+     popup) AND skipped the refresh, leaving a stale snapshot with no UI.
+     Now re-refreshes in exactly the nil-popup case; popup paths unchanged.
+- **Non-bugs (harness artifacts, not app bugs):** FF merge yields 2 commits
+  not 3; direct `sync.pull` without upstream fails at git level (use
+  `menuPull`, now guarded); worktree paths must be compared canonicalized
+  in test assertions (`/tmp` → `/private/var` on macOS).
+- **Left for later (not regressions, deliberately untouched):** banner undo
+  stays acknowledge-only (no undo SHA plumbed); `.cloning` selection still
+  unreachable (clone dialog clones inline then selects — verified working);
+  `findDefaultBranch` still heuristic (no `origin/HEAD` symbolic-ref call);
+  partial `DiffSelection` still commits full files; stale `.error` sheets
+  are not auto-cleared by later successful ops.
+- **Tests:** `Tests/Task16Tests.swift` (`@MainActor`, `runAll() async`,
+  9 groups: pure + mock-pipeline + 1 live dirty-checkout fixture).
+  Full green: all 15 suites via split harnesses; `xcodebuild` Debug +
+  Release green; `electron/` untouched.
+- No GH / editor / Copilot / theme / notification code anywhere (scope bans).

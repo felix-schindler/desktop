@@ -28,6 +28,29 @@ public func stateForRepositoryID(_ id: Int, in store: AppStore) -> RepositorySta
     return store.repositoryStates[repo.hash]
 }
 
+/// Canonicalize a repository path for identity compares. Git reports
+/// symlink-resolved paths (e.g. `/private/var/…` for a `/tmp/…` entry) while
+/// stored repository paths keep the user's original spelling; plain string
+/// compares would then miss and add duplicate entries (Task 16).
+public func canonicalRepoPath(_ path: String) -> String {
+    (path as NSString).resolvingSymlinksInPath
+}
+
+/// Bespoke popup for branch-checkout failures caused by dirty working-tree
+/// conflicts. Nil for every other error — callers fall back to
+/// `routeRefreshFailure` (Missing routing + generic `.error`) there.
+public func checkoutConflictPopup(error: Error, repositoryID: Int) -> Popup? {
+    guard let gitError = error as? GitError else { return nil }
+    switch gitError.kind {
+    case .localChangesOverwritten, .mergeWithLocalChanges, .rebaseWithLocalChanges:
+        return .localChangesOverwritten(
+            repositoryID: repositoryID,
+            files: parseFilesToBeOverwritten(gitError.stderr))
+    default:
+        return nil
+    }
+}
+
 // MARK: - Branch checkout / CRUD
 
 /// Checkout `branch` (local or remote-tracking) then refresh.
@@ -50,7 +73,13 @@ public func shellCheckoutBranch(store: AppStore, repository: Repository, branch:
         await store.refreshRepository(repository)
         return true
     } catch {
-        store.routeRefreshFailure(error, for: repository)
+        if let popup = checkoutConflictPopup(error: error, repositoryID: repository.id) {
+            // Dirty-WD conflicts surface the bespoke sheet (with the file
+            // list) instead of a bare `.error`.
+            store.showPopup(popup)
+        } else {
+            store.routeRefreshFailure(error, for: repository)
+        }
         return false
     }
 }
@@ -317,11 +346,15 @@ public func shellRemoveWorktree(
 /// for the new path (mirrors the reference state-transfer seam).
 @MainActor
 public func shellSwitchWorktree(store: AppStore, repository: Repository, worktree: WorktreeEntry) {
-    if worktree.path == repository.path {
+    // Compare canonical paths: `git worktree list` resolves symlinks while
+    // the stored repository path may not (`/tmp/…` vs `/private/var/…`).
+    if canonicalRepoPath(worktree.path) == canonicalRepoPath(repository.path) {
         store.closeFoldout()
         return
     }
-    if let existing = store.repositories.first(where: { $0.path == worktree.path }) {
+    if let existing = store.repositories.first(where: {
+        canonicalRepoPath($0.path) == canonicalRepoPath(worktree.path)
+    }) {
         store.selectRepository(existing)
     } else {
         let nextID = (store.repositories.map(\.id).max() ?? 0) + 1

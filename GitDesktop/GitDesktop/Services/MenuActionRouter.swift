@@ -131,6 +131,14 @@ public func syncAvailabilityMessage(operation: String, state: RepositoryState) -
     }
 }
 
+/// Feedback when pull cannot run because the current branch tracks no
+/// upstream. Plain `git pull <remote>` fails with "did not specify a branch"
+/// in that state; the toolbar never offers Pull there (it shows Publish
+/// instead), so the menu explains rather than dumping git's stderr.
+public func pullUpstreamMessage(branchName: String) -> String {
+    "Pull is unavailable: the current branch '\(branchName)' has no upstream branch."
+}
+
 /// Merge source for "Update from Default Branch": the inferred default branch
 /// when the current branch is valid and different from it. Nil mirrors the
 /// reference early return (menu-update.ts disables the item in those states).
@@ -248,9 +256,15 @@ public extension AppStore {
             let (_, state) = try await pipeline.performAndRefresh(work: work)
             updateRepositoryState(state)
         } catch {
-            if let popup = popupForSyncFailure(error, context: context) {
-                showPopup(popup)
+            guard let popup = popupForSyncFailure(error, context: context) else {
+                // Conflict errors are owned by the merge/rebase flows and map
+                // to no popup — but the working directory changed (MERGE_HEAD
+                // etc.), so refresh to keep the snapshot truthful instead of
+                // leaving it stale with no UI at all (Task 16).
+                await refreshRepository(repository)
+                return
             }
+            showPopup(popup)
         }
     }
 
@@ -294,6 +308,14 @@ public extension AppStore {
         }
         guard target.branch != nil else {
             showPopup(.error(message: syncAvailabilityMessage(operation: "Pull", state: state)))
+            return
+        }
+        // A branch with no upstream cannot pull (plain `git pull <remote>`
+        // fails with "did not specify a branch"). The toolbar never offers
+        // Pull here (it shows Publish instead); the menu explains rather
+        // than dumping git's stderr into an `.error` sheet (Task 16).
+        if case .valid(let branch) = state.tip, branch.upstream == nil {
+            showPopup(.error(message: pullUpstreamMessage(branchName: branch.name)))
             return
         }
         let remote = target.remote
