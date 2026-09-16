@@ -119,10 +119,14 @@ public enum Popup: Sendable, Equatable, Identifiable {
     case multiCommitOperation(repositoryID: Int, kind: MultiCommitOperationKind, initialBranchName: String?)
     case warnLocalChangesBeforeUndo(repositoryID: Int, commitSHA: String, isWorkingDirectoryClean: Bool)
     case warningBeforeReset(repositoryID: Int, commitSHA: String)
+    case warnForcePush(
+        operation: String,
+        repositoryID: Int,
+        baseBranchName: String,
+        targetBranchName: String)
     case addSSHHost(host: String, fingerprint: String)
     case sshKeyPassphrase(keyPath: String)
     case sshUserPassword(username: String)
-    case warnForcePush(operation: String)
     case discardChangesRetry(repositoryID: Int)
     case unreachableCommits(repositoryID: Int)
     case error(message: String)
@@ -205,10 +209,14 @@ public enum Popup: Sendable, Equatable, Identifiable {
     }
 
     /// Stable identity for sheet presentation. Error popups stack (they are
-    /// never deduped); all other types have one instance per type.
+    /// never deduped); multi-commit dialogs fold kind + initial branch in so
+    /// retargeting swaps sheet content with fresh state; all other types
+    /// have one instance per type.
     nonisolated public var id: String {
         switch self {
         case .error(let message): return "error-\(abs(message.hashValue))"
+        case .multiCommitOperation(let repositoryID, let kind, let initialBranchName):
+            return "multiCommitOperation-\(repositoryID)-\(kind.rawValue)-\(initialBranchName ?? "-")"
         default: return "popup-\(type.rawValue)"
         }
     }

@@ -24,7 +24,7 @@ public enum MultiCommitTests {
     }
 
     @discardableResult
-    public static func runAll() -> Int {
+    public static func runAll() async -> Int {
         var failures: [Failure] = []
         testFormatRebaseValue(&failures)
         testRebaseProgressLine(&failures)
@@ -34,6 +34,7 @@ public enum MultiCommitTests {
         testSequencerTodo(&failures)
         testSquashTodo(&failures)
         testReorderTodo(&failures)
+        testScopeLog(&failures)
         testValidationGuards(&failures)
         testLastRetainedCommitRef(&failures)
         testCanStartOperation(&failures)
@@ -41,6 +42,15 @@ public enum MultiCommitTests {
         testDropRouting(&failures)
         testKeyboardReorder(&failures)
         testBannerMapping(&failures)
+        await testWarnAboutRemoteCommits(&failures)
+        await testShellRebaseBranch(&failures)
+        await testLiveRebaseBranch(&failures)
+        await testShellSquash(&failures)
+        await testShellReorder(&failures)
+        await testShellContinueAbort(&failures)
+        await testLiveSquash(&failures)
+        await testLiveReorder(&failures)
+        await testLiveContinueRebase(&failures)
 
         if failures.isEmpty {
             print("MultiCommitTests: all tests passed")
@@ -275,6 +285,21 @@ public enum MultiCommitTests {
         }
     }
 
+    // MARK: - Log scoping
+
+    static func testScopeLog(_ failures: inout [Failure]) {
+        let test = "scope-log"
+        let log = ["d", "c", "b", "a"].map { oneLine($0) }
+        check(scopeLogForInteractiveRebase(log: log, ref: nil).map(\.sha) == ["d", "c", "b", "a"],
+              "nil ref → whole log", test: test, failures: &failures)
+        check(scopeLogForInteractiveRebase(log: log, ref: "b^").map(\.sha) == ["d", "c", "b"],
+              "base included", test: test, failures: &failures)
+        check(scopeLogForInteractiveRebase(log: log, ref: "a^").map(\.sha) == ["d", "c", "b", "a"],
+              "root-adjacent → whole log", test: test, failures: &failures)
+        check(scopeLogForInteractiveRebase(log: log, ref: "zzz^").isEmpty,
+              "unknown base → empty (builders throw)", test: test, failures: &failures)
+    }
+
     // MARK: - Validation guards
 
     static func testValidationGuards(_ failures: inout [Failure]) {
@@ -411,6 +436,626 @@ public enum MultiCommitTests {
         check(toEnd == .reorder(beforeSHA: nil, shas: ["a", "b"]), "end resolves, got \(toEnd)", test: test, failures: &failures)
         let single = KeyboardReorderSession(shas: ["a"], orderedSHAs: ["a", "b"])
         check(single.hintText.contains("1 commit."), "singular hint", test: test, failures: &failures)
+    }
+
+    // MARK: - Squash / reorder seams + continue / abort
+
+    static func squashLog() -> [Commit] {
+        // Newest-first A..D; summaries double as todo text.
+        ["d", "c", "b", "a"].map { testCommit(sha: $0) }
+    }
+
+    static func commit(named sha: String, in log: [Commit]) -> Commit {
+        log.first(where: { $0.sha == sha })!
+    }
+
+    static func testShellSquash(_ failures: inout [Failure]) async {
+        let test = "shell-squash"
+        let repo = Repository(path: "/tmp/shell-squash", id: 1710)
+        let feature = Branch(
+            name: "feature", upstream: nil, tip: BranchTip(sha: "d"),
+            type: .local, ref: "refs/heads/feature")
+        let mock = MockGitService(repositoryPath: repo.path)
+        mock.stubCommits = squashLog()
+        let app = await storeServing(repo: repo, tipBranch: feature, mock: mock)
+        let log = mock.stubCommits
+        let service = MockMultiCommitService()
+        let result = await shellSquashCommits(
+            store: app, repository: repo,
+            toSquash: [commit(named: "d", in: log), commit(named: "c", in: log)],
+            onto: commit(named: "b", in: log),
+            summary: "Squashed!", service: service)
+        check(result == .completedWithoutError, "completes, got \(String(describing: result))",
+              test: test, failures: &failures)
+        check(service.recordedOps == [.interactiveRebase(action: .squash)],
+              "runs interactive squash, got \(service.recordedOps)",
+              test: test, failures: &failures)
+        check(app.currentBanner == .successfulSquash(count: 3, actionToken: {
+            if case .successfulSquash(_, let token) = app.currentBanner { return token }
+            return UUID()
+        }()), "squash banner, got \(String(describing: app.currentBanner))",
+              test: test, failures: &failures)
+        check(app.multiCommitUndoStates[repo.hash] == MultiCommitUndoState(
+            kind: .squash, undoSHA: "d", branchName: "feature"),
+              "undo recorded, got \(String(describing: app.multiCommitUndoStates[repo.hash]))",
+              test: test, failures: &failures)
+        check(app.inFlightMultiCommitOps[repo.hash] == nil, "in-flight cleared",
+              test: test, failures: &failures)
+        // Conflicts keep the op open and surface the conflicts flow.
+        service.stubRebaseResult = .conflictsEncountered
+        let conflicted = await shellSquashCommits(
+            store: app, repository: repo,
+            toSquash: [commit(named: "d", in: log)],
+            onto: commit(named: "c", in: log),
+            summary: "Again", service: service)
+        check(conflicted == .conflictsEncountered, "conflicts pass through",
+              test: test, failures: &failures)
+        if case .conflictsFound(let description, _) = app.currentBanner {
+            check(description.contains("squashing"), "conflicts banner, got \(description)",
+                  test: test, failures: &failures)
+        } else {
+            check(false, "conflicts banner, got \(String(describing: app.currentBanner))",
+                  test: test, failures: &failures)
+        }
+        check(app.currentPopup == .multiCommitOperation(
+            repositoryID: repo.id, kind: .squash, initialBranchName: nil),
+              "squash dialog opens, got \(String(describing: app.currentPopup))",
+              test: test, failures: &failures)
+        check(app.inFlightMultiCommitOps[repo.hash]?.kind == .squash, "in-flight kept",
+              test: test, failures: &failures)
+        // Validation failures never start.
+        let mergey = testCommit(sha: "m", parents: ["a", "b"])
+        let refused = await shellSquashCommits(
+            store: app, repository: repo,
+            toSquash: [mergey], onto: commit(named: "a", in: log),
+            summary: "Nope", service: service)
+        check(refused == nil, "merge squash refused",
+              test: test, failures: &failures)
+        let errors = app.allPopups.filter {
+            if case .error = $0 { return true }; return false
+        }
+        check(!errors.isEmpty, "validation posts .error",
+              test: test, failures: &failures)
+    }
+
+    static func testShellReorder(_ failures: inout [Failure]) async {
+        let test = "shell-reorder"
+        let repo = Repository(path: "/tmp/shell-reorder", id: 1711)
+        let feature = Branch(
+            name: "feature", upstream: nil, tip: BranchTip(sha: "d"),
+            type: .local, ref: "refs/heads/feature")
+        let mock = MockGitService(repositoryPath: repo.path)
+        mock.stubCommits = squashLog()
+        let app = await storeServing(repo: repo, tipBranch: feature, mock: mock)
+        let log = mock.stubCommits
+        let service = MockMultiCommitService()
+        let result = await shellReorderCommits(
+            store: app, repository: repo,
+            toMove: [commit(named: "d", in: log)], beforeSHA: "c",
+            service: service)
+        check(result == .completedWithoutError, "completes, got \(String(describing: result))",
+              test: test, failures: &failures)
+        check(service.recordedOps == [.interactiveRebase(action: .reorder)],
+              "runs interactive reorder, got \(service.recordedOps)",
+              test: test, failures: &failures)
+        if case .successfulReorder(let count, _) = app.currentBanner {
+            check(count == 1, "reorder banner count, got \(count)",
+                  test: test, failures: &failures)
+        } else {
+            check(false, "reorder banner, got \(String(describing: app.currentBanner))",
+                  test: test, failures: &failures)
+        }
+        check(app.multiCommitUndoStates[repo.hash]?.kind == .reorder, "undo recorded",
+              test: test, failures: &failures)
+        // Dirty workdir refuses before anything runs.
+        var dirty = RepositoryState(repository: repo)
+        dirty.workingDirectory = .fromFiles([WorkingDirectoryFileChange(
+            path: "x.txt", status: .modified(submoduleStatus: nil),
+            selection: .fromInitialSelection(.all))])
+        dirty.tip = .valid(branch: feature)
+        dirty.branches = [feature]
+        app.updateRepositoryState(dirty)
+        let opsBefore = service.recordedOps.count
+        let refused = await shellReorderCommits(
+            store: app, repository: repo,
+            toMove: [commit(named: "d", in: log)], beforeSHA: nil,
+            service: service)
+        check(refused == nil && service.recordedOps.count == opsBefore,
+              "dirty refuses without running",
+              test: test, failures: &failures)
+    }
+
+    static func testShellContinueAbort(_ failures: inout [Failure]) async {
+        let test = "shell-continue-abort"
+        let repo = Repository(path: "/tmp/shell-continue", id: 1712)
+        let feature = testBranch("feature")
+        let mock = MockGitService(repositoryPath: repo.path)
+        let app = await storeServing(repo: repo, tipBranch: feature, mock: mock)
+        let service = MockMultiCommitService()
+        let popup = Popup.multiCommitOperation(
+            repositoryID: repo.id, kind: .squash, initialBranchName: nil)
+        // Continue a recorded squash through to its banner.
+        app.inFlightMultiCommitOps[repo.hash] = InFlightMultiCommitOp(
+            kind: .squash, count: 3, targetBranchName: "feature")
+        app.showPopup(popup)
+        service.stubRebaseResult = .completedWithoutError
+        let done = await shellContinueMultiCommitOp(
+            store: app, repository: repo, popup: popup, service: service)
+        check(done, "continue completes", test: test, failures: &failures)
+        check(service.recordedOps.contains(.continuedRebase),
+              "continued, got \(service.recordedOps)",
+              test: test, failures: &failures)
+        if case .successfulSquash(let count, _) = app.currentBanner {
+            check(count == 3, "squash banner keeps count, got \(count)",
+                  test: test, failures: &failures)
+        } else {
+            check(false, "squash banner, got \(String(describing: app.currentBanner))",
+                  test: test, failures: &failures)
+        }
+        check(app.inFlightMultiCommitOps[repo.hash] == nil, "in-flight cleared",
+              test: test, failures: &failures)
+        check(!app.allPopups.contains(popup), "popup closes",
+              test: test, failures: &failures)
+        // Renewed conflicts stay open for another round.
+        app.inFlightMultiCommitOps[repo.hash] = InFlightMultiCommitOp(
+            kind: .reorder, count: 1, targetBranchName: "feature")
+        app.showPopup(popup)
+        service.stubRebaseResult = .conflictsEncountered
+        let stuck = await shellContinueMultiCommitOp(
+            store: app, repository: repo, popup: popup, service: service)
+        check(!stuck && app.allPopups.contains(popup), "conflicts stay open",
+              test: test, failures: &failures)
+        check(app.inFlightMultiCommitOps[repo.hash] != nil, "in-flight kept",
+              test: test, failures: &failures)
+        // Abort tears everything down, including the conflicts banner.
+        app.setBanner(.conflictsFound(operationDescription: "squashing", actionToken: UUID()))
+        let aborted = await shellAbortMultiCommitOp(
+            store: app, repository: repo, popup: popup, service: service)
+        check(aborted, "abort runs", test: test, failures: &failures)
+        check(service.recordedOps.contains(.abortedRebase),
+              "aborted, got \(service.recordedOps)",
+              test: test, failures: &failures)
+        check(app.inFlightMultiCommitOps[repo.hash] == nil, "abort clears in-flight",
+              test: test, failures: &failures)
+        check(app.currentBanner == nil, "abort clears conflicts banner",
+              test: test, failures: &failures)
+        check(!app.allPopups.contains(popup), "abort closes popup",
+              test: test, failures: &failures)
+    }
+
+    static func testLiveSquash(_ failures: inout [Failure]) async {
+        let test = "live-squash"
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MultiCommitTests-squash-\(UUID().uuidString)").path
+        do {
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        } catch {
+            check(false, "temp dir failed: \(error)", test: test, failures: &failures)
+            return
+        }
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        func run(_ args: [String]) async throws {
+            let result = try await GitProcess.run(args, workingDirectory: dir)
+            guard result.exitCode == 0 else {
+                throw GitError(
+                    kind: parseGitError(result.stderrString),
+                    args: args, stdout: result.stdoutString,
+                    stderr: result.stderrString, exitCode: result.exitCode)
+            }
+        }
+        func log() async throws -> [String] {
+            let result = try await GitProcess.run(
+                ["log", "--format=%H %s"], workingDirectory: dir)
+            return result.stdoutString.components(separatedBy: "\n").filter { !$0.isEmpty }
+        }
+        do {
+            try await run(["-c", "init.defaultBranch=main", "init"])
+            try await run(["config", "user.name", "MultiCommit Tests"])
+            try await run(["config", "user.email", "multicommit@example.com"])
+            for (name, content) in [("a", "a\n"), ("b", "b\n"), ("c", "c\n"), ("d", "d\n")] {
+                try "\(content)".write(
+                    toFile: (dir as NSString).appendingPathComponent("\(name).txt"),
+                    atomically: true, encoding: .utf8)
+                try await run(["add", "--", "\(name).txt"])
+                try await run(["commit", "-m", name.uppercased()])
+            }
+            let repo = Repository(path: dir, id: 1713)
+            let app = AppStore()
+            app.setRepositories([repo])
+            app.selectRepository(repo)
+            await app.refreshRepository(repo)
+            guard let state = app.selectedState else {
+                check(false, "no state", test: test, failures: &failures)
+                return
+            }
+            func byMessage(_ message: String) -> Commit {
+                state.recentCommits.first(where: { $0.summary == message })!
+            }
+            let result = await shellSquashCommits(
+                store: app, repository: repo,
+                toSquash: [byMessage("D"), byMessage("C")], onto: byMessage("B"),
+                summary: "Squashed!")
+            check(result == .completedWithoutError, "squash completes, got \(String(describing: result))",
+                  test: test, failures: &failures)
+            let after = try await log()
+            check(after.count == 2, "two commits remain, got \(after)",
+                  test: test, failures: &failures)
+            check(after.first?.contains("Squashed!") == true, "message kept, got \(after)",
+                  test: test, failures: &failures)
+            if case .successfulSquash(let count, _) = app.currentBanner {
+                check(count == 3, "banner count, got \(count)",
+                      test: test, failures: &failures)
+            } else {
+                check(false, "squash banner, got \(String(describing: app.currentBanner))",
+                      test: test, failures: &failures)
+            }
+            // Undo restores all four commits.
+            if let banner = app.currentBanner {
+                await shellUndoBanner(store: app, banner: banner)
+                let undone = try await log()
+                check(undone.count == 4, "undo restores, got \(undone)",
+                      test: test, failures: &failures)
+            } else {
+                check(false, "no banner to undo", test: test, failures: &failures)
+            }
+        } catch {
+            check(false, "threw: \(error)", test: test, failures: &failures)
+        }
+    }
+
+    static func testLiveReorder(_ failures: inout [Failure]) async {
+        let test = "live-reorder"
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MultiCommitTests-reorder-\(UUID().uuidString)").path
+        do {
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        } catch {
+            check(false, "temp dir failed: \(error)", test: test, failures: &failures)
+            return
+        }
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        func run(_ args: [String]) async throws {
+            let result = try await GitProcess.run(args, workingDirectory: dir)
+            guard result.exitCode == 0 else {
+                throw GitError(
+                    kind: parseGitError(result.stderrString),
+                    args: args, stdout: result.stdoutString,
+                    stderr: result.stderrString, exitCode: result.exitCode)
+            }
+        }
+        func subjects() async throws -> [String] {
+            let result = try await GitProcess.run(
+                ["log", "--format=%s"], workingDirectory: dir)
+            return result.stdoutString.components(separatedBy: "\n").filter { !$0.isEmpty }
+        }
+        do {
+            try await run(["-c", "init.defaultBranch=main", "init"])
+            try await run(["config", "user.name", "MultiCommit Tests"])
+            try await run(["config", "user.email", "multicommit@example.com"])
+            for (name, content) in [("a", "a\n"), ("b", "b\n"), ("c", "c\n"), ("d", "d\n")] {
+                try "\(content)".write(
+                    toFile: (dir as NSString).appendingPathComponent("\(name).txt"),
+                    atomically: true, encoding: .utf8)
+                try await run(["add", "--", "\(name).txt"])
+                try await run(["commit", "-m", name.uppercased()])
+            }
+            let repo = Repository(path: dir, id: 1714)
+            let app = AppStore()
+            app.setRepositories([repo])
+            app.selectRepository(repo)
+            await app.refreshRepository(repo)
+            guard let state = app.selectedState else {
+                check(false, "no state", test: test, failures: &failures)
+                return
+            }
+            let d = state.recentCommits.first(where: { $0.summary == "D" })!
+            let c = state.recentCommits.first(where: { $0.summary == "C" })!
+            let result = await shellReorderCommits(
+                store: app, repository: repo, toMove: [d], beforeSHA: c.sha)
+            check(result == .completedWithoutError, "reorder completes, got \(String(describing: result))",
+                  test: test, failures: &failures)
+            check(try await subjects() == ["C", "D", "B", "A"],
+                  "D before C, got \(try await subjects())",
+                  test: test, failures: &failures)
+            // Undo restores the original order.
+            if let banner = app.currentBanner {
+                await shellUndoBanner(store: app, banner: banner)
+                check(try await subjects() == ["D", "C", "B", "A"],
+                      "undo restores, got \(try await subjects())",
+                      test: test, failures: &failures)
+            } else {
+                check(false, "no banner to undo", test: test, failures: &failures)
+            }
+        } catch {
+            check(false, "threw: \(error)", test: test, failures: &failures)
+        }
+    }
+
+    static func testLiveContinueRebase(_ failures: inout [Failure]) async {
+        let test = "live-continue"
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MultiCommitTests-continue-\(UUID().uuidString)").path
+        do {
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        } catch {
+            check(false, "temp dir failed: \(error)", test: test, failures: &failures)
+            return
+        }
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        func run(_ args: [String]) async throws {
+            let result = try await GitProcess.run(args, workingDirectory: dir)
+            guard result.exitCode == 0 else {
+                throw GitError(
+                    kind: parseGitError(result.stderrString),
+                    args: args, stdout: result.stdoutString,
+                    stderr: result.stderrString, exitCode: result.exitCode)
+            }
+        }
+        do {
+            try await run(["-c", "init.defaultBranch=main", "init"])
+            try await run(["config", "user.name", "MultiCommit Tests"])
+            try await run(["config", "user.email", "multicommit@example.com"])
+            try "base\n".write(
+                toFile: (dir as NSString).appendingPathComponent("f.txt"),
+                atomically: true, encoding: .utf8)
+            try await run(["add", "--", "f.txt"])
+            try await run(["commit", "-m", "base"])
+            try await run(["checkout", "-qb", "feature"])
+            try "base\nfeature\n".write(
+                toFile: (dir as NSString).appendingPathComponent("f.txt"),
+                atomically: true, encoding: .utf8)
+            try await run(["commit", "-qam", "feature work"])
+            try await run(["checkout", "-q", "main"])
+            try "base\nmainline\n".write(
+                toFile: (dir as NSString).appendingPathComponent("f.txt"),
+                atomically: true, encoding: .utf8)
+            try await run(["commit", "-qam", "main work"])
+            try await run(["checkout", "-q", "feature"])
+            // Start a conflicting rebase directly, then drive the shell seam.
+            let service = LiveMultiCommitService()
+            let started = try await service.rebase(
+                repositoryPath: dir, baseBranch: "main", targetBranch: "feature")
+            guard started == .conflictsEncountered else {
+                check(false, "conflicted start, got \(started)", test: test, failures: &failures)
+                return
+            }
+            let repo = Repository(path: dir, id: 1715)
+            let app = AppStore()
+            app.setRepositories([repo])
+            app.selectRepository(repo)
+            await app.refreshRepository(repo)
+            app.inFlightMultiCommitOps[repo.hash] = InFlightMultiCommitOp(
+                kind: .rebase, count: 0,
+                targetBranchName: "feature", baseBranchName: "main")
+            let popup = Popup.multiCommitOperation(
+                repositoryID: repo.id, kind: .rebase, initialBranchName: nil)
+            app.showPopup(popup)
+            // Resolve with theirs and stage, like the conflicts UI would.
+            try await run(["checkout", "--theirs", "--", "f.txt"])
+            try await run(["add", "--", "f.txt"])
+            await app.refreshRepository(repo)
+            let done = await shellContinueMultiCommitOp(
+                store: app, repository: repo, popup: popup)
+            check(done, "continue completes", test: test, failures: &failures)
+            check(app.currentBanner == .successfulRebase(targetBranch: "feature", baseBranch: "main"),
+                  "rebase banner, got \(String(describing: app.currentBanner))",
+                  test: test, failures: &failures)
+            check(!app.allPopups.contains(popup), "popup closes",
+                  test: test, failures: &failures)
+            check(app.inFlightMultiCommitOps[repo.hash] == nil, "in-flight cleared",
+                  test: test, failures: &failures)
+        } catch {
+            check(false, "threw: \(error)", test: test, failures: &failures)
+        }
+    }
+
+    // MARK: - Force-push gate + rebase execution
+
+    /// AppStore serving `mock` on `repo` at `tipBranch` (stubs mirror the
+    /// published state so background refreshes converge).
+    private static func storeServing(
+        repo: Repository, tipBranch: Branch, mock: MockGitService
+    ) async -> AppStore {
+        mock.stubStatus = RepositoryStatus(
+            headers: StatusParser.StatusHeaders(
+                currentBranch: tipBranch.name,
+                currentUpstreamBranch: tipBranch.upstream,
+                currentTip: tipBranch.tip.sha,
+                aheadBehind: nil),
+            workingDirectory: .fromFiles([]))
+        mock.stubBranches = [tipBranch]
+        mock.stubRemotes = []
+        // stubCommits is the caller's (the seams read the branch log for
+        // todo building); default MockGitService starts empty.
+        let app = AppStore()
+        app.setRepositories([repo])
+        app.makeService = { _ in mock }
+        app.selectRepository(repo)
+        var state = RepositoryState(repository: repo)
+        state.tip = .valid(branch: tipBranch)
+        state.branches = [tipBranch]
+        app.updateRepositoryState(state)
+        await app.refreshRepository(repo)
+        return app
+    }
+
+    static func testWarnAboutRemoteCommits(_ failures: inout [Failure]) async {
+        let test = "warn-remote-commits"
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MultiCommitTests-warn-\(UUID().uuidString)").path
+        do {
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        } catch {
+            check(false, "temp dir failed: \(error)", test: test, failures: &failures)
+            return
+        }
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        func run(_ args: [String]) async throws -> String {
+            let result = try await GitProcess.run(args, workingDirectory: dir)
+            guard result.exitCode == 0 else {
+                throw GitError(
+                    kind: parseGitError(result.stderrString),
+                    args: args, stdout: result.stdoutString,
+                    stderr: result.stderrString, exitCode: result.exitCode)
+            }
+            return result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        do {
+            try await run(["-c", "init.defaultBranch=main", "init"])
+            try await run(["config", "user.name", "MultiCommit Tests"])
+            try await run(["config", "user.email", "multicommit@example.com"])
+            try "a\n".write(
+                toFile: (dir as NSString).appendingPathComponent("f.txt"),
+                atomically: true, encoding: .utf8)
+            try await run(["add", "--", "f.txt"])
+            try await run(["commit", "-m", "A"])
+            let shaA = try await run(["rev-parse", "HEAD"])
+            try "a\nb\n".write(
+                toFile: (dir as NSString).appendingPathComponent("f.txt"),
+                atomically: true, encoding: .utf8)
+            try await run(["add", "--", "f.txt"])
+            try await run(["commit", "-m", "B"])
+            let shaB = try await run(["rev-parse", "HEAD"])
+            // No upstream → never warn.
+            check(await warnAboutRemoteCommits(
+                repositoryPath: dir, upstream: nil, oldestCommitRef: shaB) == false,
+                  "no upstream → no warn", test: test, failures: &failures)
+            // Upstream ref missing locally → never warn.
+            check(await warnAboutRemoteCommits(
+                repositoryPath: dir, upstream: "origin/gone", oldestCommitRef: shaB) == false,
+                  "missing upstream ref → no warn", test: test, failures: &failures)
+            try await run(["update-ref", "refs/remotes/origin/main", shaB])
+            // Upstream == tip → nothing outside → no warn.
+            check(await warnAboutRemoteCommits(
+                repositoryPath: dir, upstream: "origin/main", oldestCommitRef: shaB) == false,
+                  "upstream at tip → no warn", test: test, failures: &failures)
+            // Upstream ahead of the rewrite base → warn.
+            try await run(["update-ref", "refs/remotes/origin/main", shaB])
+            check(await warnAboutRemoteCommits(
+                repositoryPath: dir, upstream: "origin/main", oldestCommitRef: shaA) == true,
+                  "upstream ahead → warn", test: test, failures: &failures)
+            // Bad ref fails open (the rebase surfaces the real error).
+            check(await warnAboutRemoteCommits(
+                repositoryPath: dir, upstream: "origin/main", oldestCommitRef: "deadbee") == false,
+                  "bad ref fails open", test: test, failures: &failures)
+            // Bad workdir fails open too.
+            check(await warnAboutRemoteCommits(
+                repositoryPath: "/nonexistent-\(UUID().uuidString)",
+                upstream: "origin/main", oldestCommitRef: shaA) == false,
+                  "missing repo fails open", test: test, failures: &failures)
+        } catch {
+            check(false, "threw: \(error)", test: test, failures: &failures)
+        }
+    }
+
+    static func testShellRebaseBranch(_ failures: inout [Failure]) async {
+        let test = "shell-rebase"
+        let repo = Repository(path: "/tmp/shell-rebase", id: 1701)
+        let feature = testBranch("feature")
+        let mock = MockGitService(repositoryPath: repo.path)
+        let app = await storeServing(repo: repo, tipBranch: feature, mock: mock)
+        let chooser = Popup.multiCommitOperation(
+            repositoryID: repo.id, kind: .rebase, initialBranchName: nil)
+        app.showPopup(chooser)
+        let service = MockMultiCommitService()
+        service.stubRebaseResult = .completedWithoutError
+        let result = await shellRebaseBranch(
+            store: app, repository: repo, popup: chooser,
+            baseBranchName: "main", targetBranchName: "feature",
+            service: service)
+        check(result == .completedWithoutError, "result passes through, got \(String(describing: result))",
+              test: test, failures: &failures)
+        check(service.recordedOps == [.rebased(base: "main", target: "feature")],
+              "rebase ran, got \(service.recordedOps)",
+              test: test, failures: &failures)
+        check(app.currentBanner == .successfulRebase(targetBranch: "feature", baseBranch: "main"),
+              "success banner, got \(String(describing: app.currentBanner))",
+              test: test, failures: &failures)
+        check(!app.allPopups.contains(chooser), "chooser closes, got \(app.allPopups)",
+              test: test, failures: &failures)
+        // Conflicts map to the conflicts banner (dialog stays for the flow).
+        app.showPopup(chooser)
+        service.stubRebaseResult = .conflictsEncountered
+        let conflicted = await shellRebaseBranch(
+            store: app, repository: repo, popup: chooser,
+            baseBranchName: "main", targetBranchName: "feature",
+            service: service)
+        check(conflicted == .conflictsEncountered, "conflicts pass through",
+              test: test, failures: &failures)
+        if case .rebaseConflictsFound(let target, _) = app.currentBanner {
+            check(target == "feature", "conflicts banner, got \(target)",
+                  test: test, failures: &failures)
+        } else {
+            check(false, "conflicts banner, got \(String(describing: app.currentBanner))",
+                  test: test, failures: &failures)
+        }
+    }
+
+    static func testLiveRebaseBranch(_ failures: inout [Failure]) async {
+        let test = "live-rebase"
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MultiCommitTests-rebase-\(UUID().uuidString)").path
+        do {
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        } catch {
+            check(false, "temp dir failed: \(error)", test: test, failures: &failures)
+            return
+        }
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        func run(_ args: [String]) async throws {
+            let result = try await GitProcess.run(args, workingDirectory: dir)
+            guard result.exitCode == 0 else {
+                throw GitError(
+                    kind: parseGitError(result.stderrString),
+                    args: args, stdout: result.stdoutString,
+                    stderr: result.stderrString, exitCode: result.exitCode)
+            }
+        }
+        do {
+            try await run(["-c", "init.defaultBranch=main", "init"])
+            try await run(["config", "user.name", "MultiCommit Tests"])
+            try await run(["config", "user.email", "multicommit@example.com"])
+            try "base\n".write(
+                toFile: (dir as NSString).appendingPathComponent("f.txt"),
+                atomically: true, encoding: .utf8)
+            try await run(["add", "--", "f.txt"])
+            try await run(["commit", "-m", "base"])
+            try await run(["checkout", "-qb", "feature"])
+            try "feature\n".write(
+                toFile: (dir as NSString).appendingPathComponent("g.txt"),
+                atomically: true, encoding: .utf8)
+            try await run(["add", "--", "g.txt"])
+            try await run(["commit", "-m", "feature work"])
+            // Diverge main too: rebasing onto the bare merge-base is a
+            // no-op ("up to date") in git, so real replay needs both sides.
+            try await run(["checkout", "-q", "main"])
+            try "base\nmainline\n".write(
+                toFile: (dir as NSString).appendingPathComponent("f.txt"),
+                atomically: true, encoding: .utf8)
+            try await run(["commit", "-qam", "main work"])
+            try await run(["checkout", "-q", "feature"])
+            let repo = Repository(path: dir, id: 1702)
+            let app = AppStore()
+            app.setRepositories([repo])
+            app.selectRepository(repo)
+            await app.refreshRepository(repo)
+            let chooser = Popup.multiCommitOperation(
+                repositoryID: repo.id, kind: .rebase, initialBranchName: nil)
+            app.showPopup(chooser)
+            // No upstream configured → the gate stays quiet and the rebase runs.
+            let result = await shellRebaseBranch(
+                store: app, repository: repo, popup: chooser,
+                baseBranchName: "main", targetBranchName: "feature")
+            check(result == .completedWithoutError, "live rebase completes, got \(String(describing: result))",
+                  test: test, failures: &failures)
+            check(app.currentBanner == .successfulRebase(targetBranch: "feature", baseBranch: "main"),
+                  "live banner, got \(String(describing: app.currentBanner))",
+                  test: test, failures: &failures)
+            check(!app.allPopups.contains(chooser), "live chooser closes",
+                  test: test, failures: &failures)
+        } catch {
+            check(false, "threw: \(error)", test: test, failures: &failures)
+        }
     }
 
     // MARK: - Banner mapping

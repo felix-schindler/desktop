@@ -69,6 +69,19 @@ public func validateReorder(toMove: [Commit], beforeCommit: Commit? = nil) throw
 
 // MARK: Todo-file builders (pure)
 
+/// Scope a newest-first log to an interactive-rebase range: commits newer
+/// than `ref`'s base, base included. `ref` is `<sha>^` from
+/// `lastRetainedCommitRef` (nil = `--root` = whole log). The todo builders
+/// must only see in-range commits — out-of-range picks corrupt the rewrite
+/// (commits silently dropped). Unknown base (log moved under us) yields an
+/// empty log so the builders throw instead of rewriting blind.
+nonisolated public func scopeLogForInteractiveRebase(log: [CommitOneLine], ref: String?) -> [CommitOneLine] {
+    guard let ref else { return log }
+    let base = ref.hasSuffix("^") ? String(ref.dropLast()) : ref
+    guard let index = log.firstIndex(where: { $0.sha == base }) else { return [] }
+    return Array(log[...index])
+}
+
 /// Builds the interactive-rebase todo for a squash. `log` is the branch log
 /// newest-first (as `git log` returns it); only `sha`/`summary` are read.
 /// IMPORTANT: `log` must be scoped to `lastRetainedCommitRef..HEAD` (the
@@ -180,7 +193,7 @@ public protocol MultiCommitService: Sendable {
     func rebase(repositoryPath: String, baseBranch: String, targetBranch: String) async throws -> RebaseResult
     func continueRebase(repositoryPath: String, workingTreeClean: Bool, noVerify: Bool) async throws -> RebaseResult
     func abortRebase(repositoryPath: String) async throws
-    func rebaseInteractive(repositoryPath: String, todo: String, lastRetainedCommitRef: String?, noVerify: Bool, action: MultiCommitOperationKind) async throws -> RebaseResult
+    func rebaseInteractive(repositoryPath: String, todo: String, lastRetainedCommitRef: String?, noVerify: Bool, action: MultiCommitOperationKind, gitEditor: String?) async throws -> RebaseResult
     // MARK: Cherry-pick
     func cherryPick(repositoryPath: String, shas: [String]) async throws -> CherryPickResult
     func continueCherryPick(repositoryPath: String, workingTreeClean: Bool) async throws -> CherryPickResult
@@ -241,20 +254,23 @@ public struct LiveMultiCommitService: MultiCommitService, Sendable {
         todo: String,
         lastRetainedCommitRef: String?,
         noVerify: Bool = false,
-        action: MultiCommitOperationKind = .squash
+        action: MultiCommitOperationKind = .squash,
+        gitEditor: String? = nil
     ) async throws -> RebaseResult {
         let todoURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("GitDesktop-\(action.rawValue.lowercased())-todo-\(UUID().uuidString)")
         try todo.write(to: todoURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: todoURL) }
         // Replaces the interactive todo with our generated file, verbatim from
-        // `rebaseInteractive` (`sequence.editor=cat "<todo>" >`).
+        // `rebaseInteractive` (`sequence.editor=cat "<todo>" >`). A custom
+        // GIT_EDITOR (e.g. squash's `cat "<message>" >`) overrides the
+        // non-interactive `:` default.
         let ref = lastRetainedCommitRef ?? "--root"
         var args = ["-c", "sequence.editor=cat \"\(todoURL.path)\" >", "rebase"]
         if noVerify { args.append("--no-verify") }
         args += ["-i", ref]
         let result = try await GitProcess.run(
-            args, workingDirectory: repositoryPath, environment: ["GIT_EDITOR": ":"])
+            args, workingDirectory: repositoryPath, environment: ["GIT_EDITOR": gitEditor ?? ":"])
         let error = classifyGitResult(result, args: args, successExitCodes: [0])
         if result.exitCode == 0 {
             return isRebaseUpToDateMessage(result.stdoutString) ? .alreadyUpToDate : .completedWithoutError
@@ -405,7 +421,7 @@ public final class MockMultiCommitService: MultiCommitService, Sendable {
         record(.abortedRebase)
     }
 
-    public func rebaseInteractive(repositoryPath: String, todo: String, lastRetainedCommitRef: String?, noVerify: Bool, action: MultiCommitOperationKind) async throws -> RebaseResult {
+    public func rebaseInteractive(repositoryPath: String, todo: String, lastRetainedCommitRef: String?, noVerify: Bool, action: MultiCommitOperationKind, gitEditor: String? = nil) async throws -> RebaseResult {
         record(.interactiveRebase(action: action))
         return stubRebaseResult
     }

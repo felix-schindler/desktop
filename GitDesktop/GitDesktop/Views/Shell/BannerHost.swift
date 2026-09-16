@@ -139,7 +139,15 @@ struct BannerRow: View {
                         repositoryID: id, kind: .cherryPick, initialBranchName: nil))
                 }
             case .conflictsFound:
-                if let id = store.selectedRepository?.id {
+                // Squash/reorder conflicts reopen their own kind when an op
+                // is in flight (the adapter renders its conflicts step);
+                // merge-flow posts fall back to the merge dialog.
+                if let repo = store.selectedRepository,
+                   let inFlight = store.inFlightMultiCommitOps[repo.hash],
+                   inFlight.kind != .merge {
+                    store.showPopup(.multiCommitOperation(
+                        repositoryID: repo.id, kind: inFlight.kind, initialBranchName: nil))
+                } else if let id = store.selectedRepository?.id {
                     store.showPopup(.multiCommitOperation(
                         repositoryID: id, kind: .merge, initialBranchName: nil))
                 }

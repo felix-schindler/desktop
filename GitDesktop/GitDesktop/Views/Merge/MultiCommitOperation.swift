@@ -331,6 +331,33 @@ nonisolated public func decideMultiCommitUndo(
     return .proceed(record: record)
 }
 
+/// In-flight interactive operation needing possible continue/abort.
+/// Unlike the undo record (pre-op tip for reset), this carries what the
+/// conflicts UI and completion banners need: kind, involved-commit count,
+/// and branch names. Set when a squash/reorder/rebase/cherry-pick starts,
+/// cleared when it definitively ends (success, abort, unable-to-start);
+/// kept across conflicts (and unexpected throws) so the conflicts step can
+/// continue or abort the real git state. Keyed by repository hash on
+/// `AppStore`, like the undo record.
+public struct InFlightMultiCommitOp: Sendable, Equatable {
+    public var kind: MultiCommitOperationKind
+    /// Commits involved (success-banner counts).
+    public var count: Int
+    public var targetBranchName: String
+    /// Rebase base branch (for the success banner); nil otherwise.
+    public var baseBranchName: String?
+
+    nonisolated public init(
+        kind: MultiCommitOperationKind, count: Int,
+        targetBranchName: String, baseBranchName: String? = nil
+    ) {
+        self.kind = kind
+        self.count = count
+        self.targetBranchName = targetBranchName
+        self.baseBranchName = baseBranchName
+    }
+}
+
 /// Whether the operation may start with the current dialog selection.
 /// Port of `canStartOperation` in `base-choose-branch-dialog.tsx`.
 public func canStartOperation(

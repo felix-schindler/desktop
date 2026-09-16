@@ -96,6 +96,12 @@ public final class AppStore: ObservableObject {
     /// removal, re-keyed on alias change, like the caches above.
     public var multiCommitUndoStates: [String: MultiCommitUndoState] = [:]
 
+    /// Interactive operations that may need continue/abort, keyed by
+    /// repository `hash` (see `InFlightMultiCommitOp`). Powers the conflicts
+    /// step and completion banners; cleared when the op definitively ends.
+    /// Dropped on removal, re-keyed on alias change.
+    public var inFlightMultiCommitOps: [String: InFlightMultiCommitOp] = [:]
+
     /// Hashes with an in-flight `refreshRepository`. Views use it for
     /// spinners; it never blocks selection.
     public var refreshingRepositoryHashes: Set<String> = []
@@ -176,13 +182,18 @@ public final class AppStore: ObservableObject {
     // MARK: - Popups (mirrors `PopupManager`)
 
     /// Show a popup. One per type except `.error`, which always stacks on top.
+    /// `multiCommitOperation` retargets instead of deduping: a new kind or
+    /// initial branch replaces the open dialog (its `id` includes both, so
+    /// the sheet swaps content with fresh state) rather than being dropped.
     /// Caps the stack at 50 (evicts the oldest non-error).
     public func showPopup(_ popup: Popup) {
         if case .error = popup {
             allPopups.append(popup)
-        } else if allPopups.contains(where: { $0.type == popup.type }) {
-            return // dedupe: one popup per type
         } else {
+            if let index = allPopups.firstIndex(where: { $0.type == popup.type }) {
+                guard case .multiCommitOperation = popup else { return } // dedupe: one popup per type
+                allPopups.remove(at: index) // retarget: re-show below
+            }
             // Non-errors insert before leading errors so errors stay on top.
             if let firstError = allPopups.firstIndex(where: {
                 if case .error = $0 { return true }
@@ -290,6 +301,7 @@ public final class AppStore: ObservableObject {
         repositoryStates.removeValue(forKey: repository.hash)
         gitStores.removeValue(forKey: repository.hash)
         multiCommitUndoStates.removeValue(forKey: repository.hash)
+        inFlightMultiCommitOps.removeValue(forKey: repository.hash)
         refreshingRepositoryHashes.remove(repository.hash)
         if case .repository(let state) = selection,
            state.repository.id == repository.id {
@@ -331,6 +343,9 @@ public final class AppStore: ObservableObject {
         }
         if let undo = multiCommitUndoStates.removeValue(forKey: repository.hash) {
             multiCommitUndoStates[updated.hash] = undo
+        }
+        if let inFlight = inFlightMultiCommitOps.removeValue(forKey: repository.hash) {
+            inFlightMultiCommitOps[updated.hash] = inFlight
         }
         refreshingRepositoryHashes.remove(repository.hash)
     }

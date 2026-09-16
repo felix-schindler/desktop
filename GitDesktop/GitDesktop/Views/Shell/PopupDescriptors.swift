@@ -195,7 +195,7 @@ public func describePopup(_ popup: Popup) -> PopupDescriptor {
             title: "SSH Authentication",
             message: "Enter the password for \(username).",
             primaryTitle: "Authenticate", owningTask: 7)
-    case .warnForcePush(let operation):
+    case .warnForcePush(let operation, _, _, _):
         return PopupDescriptor(
             title: "Confirm Force Push",
             message: "\(operation) will rewrite history on the remote. This cannot be undone.",

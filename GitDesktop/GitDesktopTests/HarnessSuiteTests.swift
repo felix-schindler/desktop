@@ -33,8 +33,9 @@ final class HarnessSuiteTests: XCTestCase {
         XCTAssertEqual(HistoryTests.runAll(), 0)
     }
 
-    @MainActor func testMultiCommit() {
-        XCTAssertEqual(MultiCommitTests.runAll(), 0)
+    @MainActor func testMultiCommit() async {
+        let failures = await MultiCommitTests.runAll()
+        XCTAssertEqual(failures, 0)
     }
 
     @MainActor func testTask8() {

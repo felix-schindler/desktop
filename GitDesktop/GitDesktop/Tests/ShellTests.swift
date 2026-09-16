@@ -32,6 +32,7 @@ public enum ShellTests {
         testRepoTooltip(&failures)
         testBannerMessages(&failures)
         testPopupDescriptors(&failures)
+        testPopupStackRetarget(&failures)
 
         if failures.isEmpty {
             print("ShellTests: all tests passed")
@@ -225,6 +226,51 @@ public enum ShellTests {
 
         content = describeBanner(.successfulRebase(targetBranch: "feature", baseBranch: nil))
         check(content.message == "Successfully rebased feature", "rebase no base: \(content.message)", test: test, failures: &failures)
+    }
+
+    // MARK: - Popup stack
+
+    static func testPopupStackRetarget(_ failures: inout [Failure]) {
+        let test = "popup-retarget"
+        let app = AppStore()
+        // Identical multi-commit popups still collapse to one.
+        app.showPopup(.multiCommitOperation(repositoryID: 1, kind: .rebase, initialBranchName: nil))
+        app.showPopup(.multiCommitOperation(repositoryID: 1, kind: .rebase, initialBranchName: nil))
+        check(app.allPopups.count == 1, "same kind dedupes, got \(app.allPopups)",
+              test: test, failures: &failures)
+        // A new kind replaces the open dialog instead of being dropped.
+        app.showPopup(.multiCommitOperation(repositoryID: 1, kind: .merge, initialBranchName: nil))
+        check(app.allPopups.count == 1, "kind replaces, got \(app.allPopups)",
+              test: test, failures: &failures)
+        check(app.currentPopup == .multiCommitOperation(repositoryID: 1, kind: .merge, initialBranchName: nil),
+              "current retargets, got \(String(describing: app.currentPopup))",
+              test: test, failures: &failures)
+        // A new initial branch retargets too.
+        app.showPopup(.multiCommitOperation(repositoryID: 1, kind: .merge, initialBranchName: "main"))
+        check(app.currentPopup == .multiCommitOperation(repositoryID: 1, kind: .merge, initialBranchName: "main"),
+              "initial retargets, got \(String(describing: app.currentPopup))",
+              test: test, failures: &failures)
+        // Sheet identity follows kind + initial so content swaps fresh.
+        let rebaseID = Popup.multiCommitOperation(repositoryID: 1, kind: .rebase, initialBranchName: nil).id
+        let mergeID = Popup.multiCommitOperation(repositoryID: 1, kind: .merge, initialBranchName: nil).id
+        let mergeMainID = Popup.multiCommitOperation(repositoryID: 1, kind: .merge, initialBranchName: "main").id
+        check(rebaseID != mergeID && mergeID != mergeMainID, "ids differ by kind/initial",
+              test: test, failures: &failures)
+        // Replacement lands below errors (errors stay on top).
+        app.closeAllPopups()
+        app.showPopup(.multiCommitOperation(repositoryID: 1, kind: .rebase, initialBranchName: nil))
+        app.showPopup(.error(message: "boom"))
+        app.showPopup(.multiCommitOperation(repositoryID: 1, kind: .merge, initialBranchName: nil))
+        check(app.allPopups.count == 2, "replace keeps stack small, got \(app.allPopups)",
+              test: test, failures: &failures)
+        check(app.currentPopup == .error(message: "boom"), "error stays top, got \(String(describing: app.currentPopup))",
+              test: test, failures: &failures)
+        // Other types still dedupe silently.
+        app.closeAllPopups()
+        app.showPopup(.about)
+        app.showPopup(.about)
+        check(app.allPopups.count == 1, "about dedupes, got \(app.allPopups)",
+              test: test, failures: &failures)
     }
 
     // MARK: - Popups

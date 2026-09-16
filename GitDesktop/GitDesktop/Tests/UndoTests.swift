@@ -41,6 +41,9 @@ public enum UndoTests {
         await testUndoKindMismatchRefuses(&failures)
         await testUndoRebaseClears(&failures)
         await testLiveCherryPickUndo(&failures)
+        await testLivePickChecksOutTarget(&failures)
+        await testLivePickSkipsCheckoutOnTarget(&failures)
+        await testLivePickDirtyBlocksCheckout(&failures)
         if failures.isEmpty {
             print("UndoTests: all tests passed")
         } else {
@@ -317,6 +320,213 @@ public enum UndoTests {
               test: test, failures: &failures)
         check(app.currentBanner == nil, "rebase clears",
               test: test, failures: &failures)
+    }
+
+    // MARK: - Live cherry-pick target checkout
+
+    /// Fixture: `main` at B ("a\nb\n"), `feature` at A ("a\n"), checked out
+    /// on `main`. Returns the dir plus both tip SHAs.
+    static func makeTwoBranchFixture() async throws -> (dir: String, shaA: String, shaB: String) {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("UndoTests-pick-\(UUID().uuidString)").path
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        func run(_ args: [String]) async throws -> String {
+            let result = try await GitProcess.run(args, workingDirectory: dir)
+            guard result.exitCode == 0 else {
+                throw GitError(
+                    kind: parseGitError(result.stderrString),
+                    args: args, stdout: result.stdoutString,
+                    stderr: result.stderrString, exitCode: result.exitCode)
+            }
+            return result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        try await run(["-c", "init.defaultBranch=main", "init"])
+        try await run(["config", "user.name", "Undo Tests"])
+        try await run(["config", "user.email", "undo@example.com"])
+        try "a\n".write(
+            toFile: (dir as NSString).appendingPathComponent("file.txt"),
+            atomically: true, encoding: .utf8)
+        try await run(["add", "--", "file.txt"])
+        try await run(["commit", "-m", "A"])
+        let shaA = try await run(["rev-parse", "HEAD"])
+        try await run(["checkout", "-qb", "feature"])
+        try await run(["checkout", "-q", "main"])
+        try "a\nb\n".write(
+            toFile: (dir as NSString).appendingPathComponent("file.txt"),
+            atomically: true, encoding: .utf8)
+        try await run(["add", "--", "file.txt"])
+        try await run(["commit", "-m", "B"])
+        let shaB = try await run(["rev-parse", "HEAD"])
+        return (dir, shaA, shaB)
+    }
+
+    static func localBranch(named name: String, sha: String) -> Branch {
+        Branch(name: name, upstream: nil, tip: BranchTip(sha: sha),
+               type: .local, ref: "refs/heads/\(name)")
+    }
+
+    /// Drop onto a non-checked-out branch: the seam checks it out first, so
+    /// the pick (and the undo record) land on the target — never on HEAD.
+    static func testLivePickChecksOutTarget(_ failures: inout [Failure]) async {
+        let test = "live-pick-checkout"
+        let dir: String
+        let shaA: String
+        let shaB: String
+        do {
+            (dir, shaA, shaB) = try await makeTwoBranchFixture()
+        } catch {
+            check(false, "fixture failed: \(error)", test: test, failures: &failures)
+            return
+        }
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        do {
+            let repo = Repository(path: dir, id: 1520)
+            let app = AppStore()
+            app.setRepositories([repo])
+            app.selectRepository(repo)
+            await app.refreshRepository(repo)
+            let ok = await shellCherryPickCommits(
+                store: app, repository: repo,
+                targetBranch: localBranch(named: "feature", sha: shaA),
+                shas: [shaB])
+            check(ok, "pick onto feature succeeds", test: test, failures: &failures)
+            func rev(_ args: [String]) async throws -> String {
+                try await GitProcess.run(args, workingDirectory: dir).stdoutString
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            let head = try await rev(["rev-parse", "HEAD"])
+            let content = (try? String(
+                contentsOfFile: (dir as NSString).appendingPathComponent("file.txt"),
+                encoding: .utf8)) ?? ""
+            // The pick must advance feature with B's content; SHA inequality
+            // alone can't distinguish a no-op pick from a real one.
+            check(head != shaA && content == "a\nb\n",
+                  "feature advanced with B's content (head \(head) vs A \(shaA), content \(content.debugDescription))",
+                  test: test, failures: &failures)
+            let branch = try await GitProcess.run(
+                ["rev-parse", "--abbrev-ref", "HEAD"], workingDirectory: dir).stdoutString
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            check(branch == "feature", "on feature, got \(branch)",
+                  test: test, failures: &failures)
+            if case .successfulCherryPick(let target, let count, _) = app.currentBanner {
+                check(target == "feature" && count == 1,
+                      "banner names target (got \(target) x\(count))",
+                      test: test, failures: &failures)
+            } else {
+                check(false, "success banner, got \(String(describing: app.currentBanner))",
+                      test: test, failures: &failures)
+            }
+            check(app.multiCommitUndoStates[repo.hash]?.branchName == "feature"
+                    && app.multiCommitUndoStates[repo.hash]?.undoSHA == shaA,
+                  "undo covers target tip (got \(String(describing: app.multiCommitUndoStates[repo.hash])))",
+                  test: test, failures: &failures)
+            // And the recorded undo restores the target branch.
+            if let banner = app.currentBanner {
+                await shellUndoBanner(store: app, banner: banner)
+                let undone = try await GitProcess.run(["rev-parse", "HEAD"], workingDirectory: dir).stdoutString
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                check(undone == shaA, "undo restores feature to A (got \(undone))",
+                      test: test, failures: &failures)
+            } else {
+                check(false, "no banner to undo", test: test, failures: &failures)
+            }
+        } catch {
+            check(false, "threw: \(error)", test: test, failures: &failures)
+        }
+    }
+
+    /// Drop onto the checked-out branch: no checkout churn, pick applies.
+    static func testLivePickSkipsCheckoutOnTarget(_ failures: inout [Failure]) async {
+        let test = "live-pick-no-checkout"
+        let dir: String
+        let shaA: String
+        let shaB: String
+        do {
+            (dir, shaA, shaB) = try await makeTwoBranchFixture()
+        } catch {
+            check(false, "fixture failed: \(error)", test: test, failures: &failures)
+            return
+        }
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        do {
+            _ = try await GitProcess.run(["checkout", "-q", "feature"], workingDirectory: dir)
+            let repo = Repository(path: dir, id: 1521)
+            let app = AppStore()
+            app.setRepositories([repo])
+            app.selectRepository(repo)
+            await app.refreshRepository(repo)
+            let ok = await shellCherryPickCommits(
+                store: app, repository: repo,
+                targetBranch: localBranch(named: "feature", sha: shaA),
+                shas: [shaB])
+            check(ok, "pick onto current succeeds", test: test, failures: &failures)
+            check(app.multiCommitUndoStates[repo.hash]?.branchName == "feature",
+                  "undo recorded (got \(String(describing: app.multiCommitUndoStates[repo.hash])))",
+                  test: test, failures: &failures)
+        } catch {
+            check(false, "threw: \(error)", test: test, failures: &failures)
+        }
+    }
+
+    /// Dirty workdir blocking the target checkout aborts before any pick:
+    /// bespoke sheet, no banner, no undo record, HEAD untouched.
+    static func testLivePickDirtyBlocksCheckout(_ failures: inout [Failure]) async {
+        let test = "live-pick-dirty"
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("UndoTests-dirty-\(UUID().uuidString)").path
+        do {
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        } catch {
+            check(false, "temp dir failed: \(error)", test: test, failures: &failures)
+            return
+        }
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        func run(_ args: [String]) async throws {
+            let result = try await GitProcess.run(args, workingDirectory: dir)
+            guard result.exitCode == 0 else {
+                throw GitError(
+                    kind: parseGitError(result.stderrString),
+                    args: args, stdout: result.stdoutString,
+                    stderr: result.stderrString, exitCode: result.exitCode)
+            }
+        }
+        do {
+            try await run(["-c", "init.defaultBranch=main", "init"])
+            try await run(["config", "user.name", "Undo Tests"])
+            try await run(["config", "user.email", "undo@example.com"])
+            try "base\n".write(
+                toFile: (dir as NSString).appendingPathComponent("f.txt"),
+                atomically: true, encoding: .utf8)
+            try await run(["add", "--", "f.txt"])
+            try await run(["commit", "-m", "c1"])
+            try await run(["checkout", "-qb", "side"])
+            try "side-content\n".write(
+                toFile: (dir as NSString).appendingPathComponent("f.txt"),
+                atomically: true, encoding: .utf8)
+            try await run(["commit", "-qam", "side"])
+            try await run(["checkout", "-q", "main"])
+            try "dirty\n".write(
+                toFile: (dir as NSString).appendingPathComponent("f.txt"),
+                atomically: true, encoding: .utf8)
+            let repo = Repository(path: dir, id: 1522)
+            let app = AppStore()
+            app.setRepositories([repo])
+            app.selectRepository(repo)
+            await app.refreshRepository(repo)
+            let side = localBranch(named: "side", sha: "side")
+            let ok = await shellCherryPickCommits(
+                store: app, repository: repo, targetBranch: side, shas: ["deadbee"])
+            check(!ok, "dirty checkout aborts the pick", test: test, failures: &failures)
+            check(app.currentPopup == .localChangesOverwritten(repositoryID: repo.id, files: ["f.txt"]),
+                  "bespoke sheet, got \(String(describing: app.currentPopup))",
+                  test: test, failures: &failures)
+            check(app.currentBanner == nil, "no banner, got \(String(describing: app.currentBanner))",
+                  test: test, failures: &failures)
+            check(app.multiCommitUndoStates[repo.hash] == nil, "no undo record",
+                  test: test, failures: &failures)
+        } catch {
+            check(false, "threw: \(error)", test: test, failures: &failures)
+        }
     }
 
     // MARK: - Live (real cherry-pick + undo on a fixture repo)

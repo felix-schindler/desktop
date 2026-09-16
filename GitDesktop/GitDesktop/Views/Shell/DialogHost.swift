@@ -111,8 +111,12 @@ struct PopupSheet: View {
                 MultiCommitOperationDialogAdapter(
                     store: store, popup: popup, repositoryID: repositoryID,
                     kind: kind, initialBranchName: initialBranchName)
-            case .warnForcePush(let operation):
-                WarnForcePushDialogAdapter(store: store, popup: popup, operation: operation)
+            case .warnForcePush(let operation, let repositoryID, let baseBranchName, let targetBranchName):
+                WarnForcePushDialogAdapter(
+                    store: store, popup: popup, operation: operation,
+                    repositoryID: repositoryID,
+                    baseBranchName: baseBranchName,
+                    targetBranchName: targetBranchName)
             case .commitMessage(_, let dialogTitle, let dialogButtonText):
                 CommitMessageDialogAdapter(
                     store: store, popup: popup,

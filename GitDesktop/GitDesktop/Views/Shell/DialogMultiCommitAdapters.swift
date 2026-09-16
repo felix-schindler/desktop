@@ -32,13 +32,42 @@ struct MultiCommitOperationDialogAdapter: View {
         }
     }
 
-    /// Rebase choose-branch step. Cherry-pick/reorder have no choose-branch
-    /// entry in the reference (they start from commits); they fall back here
-    /// because the shell keeps no in-flight operation state to render true
-    /// conflict-reopen steps yet — the previously shown UI is unchanged.
+    /// Rebase choose-branch step (plus the live conflicts step). Cherry-pick
+    /// and reorder have no choose-branch entry in the reference (they start
+    /// from commits), so a fresh dialog for them still falls back to the
+    /// rebase chooser — but while an operation is actually in flight
+    /// (sequencer state on disk) the conflicts step renders instead, with
+    /// live Continue / Abort driving the real git state.
     @ViewBuilder
     private var rebaseChooser: some View {
         if let repository = repositoryForID(repositoryID, in: store),
+           let state = store.repositoryStates[repository.hash],
+           case .valid(let current) = state.tip,
+           let inFlight = store.inFlightMultiCommitOps[repository.hash],
+           inFlightConflicts(repositoryPath: repository.path, kind: inFlight.kind) {
+            let files = state.workingDirectory.files
+                .filter { $0.status.isConflicted }
+                .map { MultiCommitConflictFile(path: $0.path, isResolved: true) }
+            MultiCommitWizardView(
+                step: .showConflicts(kind: inFlight.kind, files: files),
+                currentBranch: current,
+                branches: state.branches,
+                conflictFiles: files,
+                onContinue: {
+                    Task {
+                        await shellContinueMultiCommitOp(
+                            store: store, repository: repository, popup: popup)
+                    }
+                },
+                onAbort: {
+                    Task {
+                        await shellAbortMultiCommitOp(
+                            store: store, repository: repository, popup: popup)
+                    }
+                },
+                onDismiss: { store.closePopup(popup) }
+            )
+        } else if let repository = repositoryForID(repositoryID, in: store),
            let state = store.repositoryStates[repository.hash],
            case .valid(let current) = state.tip {
             MultiCommitWizardView(
@@ -68,32 +97,33 @@ struct MultiCommitOperationDialogAdapter: View {
 
     private func beginRebase(repository: Repository, current: Branch) {
         guard let base = pickedBase, !isWorking else { return }
-        // Force-push gate first (mirrors the reference warn-force-push step).
-        if Defaults.bool(Defaults.confirmForcePush, default: true) {
-            store.showPopup(.warnForcePush(operation: MultiCommitOperationKind.rebase.rawValue))
-            return
-        }
+        // Force-push gate (mirrors `startRebase`): warn only when the setting
+        // is on AND the target's upstream actually has commits outside the
+        // target tip. Confirming continues without re-warning.
         isWorking = true
         Task {
-            let service = LiveMultiCommitService()
-            do {
-                let result = try await service.rebase(
+            let warn: Bool
+            if Defaults.bool(Defaults.confirmForcePush, default: true) {
+                warn = await warnAboutRemoteCommits(
                     repositoryPath: repository.path,
-                    baseBranch: base.name, targetBranch: current.name)
-                await store.refreshRepository(repository)
-                if let banner = rebaseResultBanner(
-                    result, targetBranch: current.name, baseBranch: base.name) {
-                    store.setBanner(banner)
-                }
-            } catch {
-                if let gitError = error as? GitError {
-                    store.showPopup(.error(message: gitError.displayMessage))
-                } else {
-                    store.showPopup(.error(message: error.localizedDescription))
-                }
+                    upstream: current.upstream,
+                    oldestCommitRef: current.tip.sha)
+            } else {
+                warn = false
             }
+            if warn {
+                isWorking = false
+                store.showPopup(.warnForcePush(
+                    operation: MultiCommitOperationKind.rebase.rawValue,
+                    repositoryID: repository.id,
+                    baseBranchName: base.name,
+                    targetBranchName: current.name))
+                return
+            }
+            await shellRebaseBranch(
+                store: store, repository: repository, popup: popup,
+                baseBranchName: base.name, targetBranchName: current.name)
             isWorking = false
-            store.closePopup(popup)
         }
     }
 }
@@ -102,6 +132,9 @@ struct WarnForcePushDialogAdapter: View {
     @ObservedObject var store: AppStore
     var popup: Popup
     var operation: String
+    var repositoryID: Int
+    var baseBranchName: String
+    var targetBranchName: String
 
     var body: some View {
         let kind = MultiCommitOperationKind(rawValue: operation) ?? .rebase
@@ -109,9 +142,17 @@ struct WarnForcePushDialogAdapter: View {
             operation: kind,
             askForConfirmationOnForcePush: Defaults.bool(Defaults.confirmForcePush, default: true),
             onBegin: {
-                // Persisted inside the view too; close and let the caller
-                // continue (the rebase adapter re-checks the default).
-                store.closePopup(popup)
+                // Continue without re-warning (reference `continueWithForcePush`):
+                // the gate already ran, so this path executes directly.
+                guard let repository = repositoryForID(repositoryID, in: store) else {
+                    store.closePopup(popup)
+                    return
+                }
+                Task {
+                    await shellRebaseBranch(
+                        store: store, repository: repository, popup: popup,
+                        baseBranchName: baseBranchName, targetBranchName: targetBranchName)
+                }
             },
             onConfirmSetting: { Defaults.setBool($0, Defaults.confirmForcePush) },
             onDismiss: { store.closePopup(popup) }
